@@ -15,21 +15,26 @@
 #define BUF_SIZE 4096
 #define QUEUE_SIZE 10
 
+#define NUM_PARAMS 3
+
 
 
 void get_content_type(char *filename, char *content_type);
-
-
-
+void usage(char *prog_name);
 
 
 int main(int argc, char *argv[]) {
 
-    char content_type[50];
+    // check if command line arguments supplied
+    if (argc < NUM_PARAMS) {
+        usage(argv[0]);
+    } 
 
-    get_content_type("s.css", content_type);
-    printf("Content-type: %s\n", content_type);
+    // get the port number and path to web root
+    int port_num = atoi(argv[1]);
+    char *path_to_web_root = argv[2];
 
+    //printf("Port number: %d\nPath to web root: %s\n", port_num, path_to_web_root);
 
 
     int sockfd, connfd;
@@ -109,6 +114,16 @@ int main(int argc, char *argv[]) {
 }
 
 
+/* Gives user information on how
+ * to use the program with corresponding
+ * command line arguments.
+ */
+void usage(char *prog_name) {
+    printf("Usage: %s [port number] [path to web root]\n", prog_name);
+    exit(EXIT_SUCCESS);
+}
+
+
 
 /* Parses the filename the client wants, and
  * returns the MIME type (content type) associated
@@ -127,3 +142,5 @@ void get_content_type(char *filename, char *content_type) {
         strcpy(content_type, "application/javascript");
     }
 }
+
+
