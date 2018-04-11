@@ -1,18 +1,21 @@
 #include <sys/types.h>
 #include <sys/fcntl.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <sys/socket.h>   // needed for socket function
+#include <netinet/in.h>   // needed for internet address i.e. sockaddr_in and in_addr
 #include <netdb.h>
 
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <arpa/inet.h>
+#include <arpa/inet.h>  // needed for byte order functions
+#include <unistd.h>     // needed for read/close functions
 
 
+#include <assert.h>
 
-#define BUF_SIZE 4096
+
+#define BUF_SIZE 128
 #define QUEUE_SIZE 10
 #define NUM_PARAMS 3
 
@@ -30,7 +33,7 @@ int main(int argc, char *argv[]) {
     } 
 
     // get the port number and path to web root
-    short port_num = atoi(argv[1]);
+    uint16_t port_num = atoi(argv[1]);
     char *path_to_web_root = argv[2];
 
     //printf("Port number: %d\nPath to web root: %s\n", port_num, path_to_web_root);
@@ -54,21 +57,27 @@ int main(int argc, char *argv[]) {
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // Listen on any IP address (socket endpoint will be bound to all the system's network interfaces)
 
-    // Note: sin_addr.s_addr is just a 32 bit int (4 bytes)
+    // Note: sin_addr.s_addr is just a 32 bit unsigned int (i.e. uint32_t)
 
     serv_addr.sin_port = htons(port_num);  // listen on the port specified in cmd line
 
 
     // create a socket
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        perror("ERROR opening socket");
-        exit(1);
+    
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Error opening socket\n");
+        exit(EXIT_FAILURE);
     }
 
 
     // Bind the socket to the server address
-    bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+    if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Error binding socket\n");
+        exit(EXIT_FAILURE);
+    }
+
+
+
 
 
     // Listen, which allocates space to queue incoming calls for the
@@ -86,6 +95,7 @@ int main(int argc, char *argv[]) {
 
 
     // Main loop of server
+    int n;
     while (1) {
 
         // Block until a connection request arrives
@@ -105,9 +115,7 @@ int main(int argc, char *argv[]) {
             exit(0);
         }
 
-        printf("%s\n",buffer);
-
-        
+        printf("%s\n",buffer);        
     }
 
     
@@ -130,11 +138,17 @@ int main(int argc, char *argv[]) {
 
 
     
+    /* close socket */
+    close(sockfd);
 
 
 
     return 0;
 }
+
+
+
+
 
 
 /* Gives user information on how
@@ -164,4 +178,55 @@ void get_content_type(char *filename, char *content_type) {
     } else if (strstr(filename, ".js") != NULL) {
         strcpy(content_type, "application/javascript");
     }
+}
+
+
+
+void serve(int sockfd, char *filename) {
+    int connfd;
+    FILE *fp;
+    char buffer[BUF_SIZE];
+
+    // Forever
+    for (;;) {
+
+        // Block until a new connection is established
+        if ((connfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
+            perror("Error on accept\n");
+            exit(EXIT_FAILURE);
+        }
+
+        // Open the file and send its contents to client
+        if ((fp = fopen(filename, "r")) == NULL) {
+            perror("Error opening file\n");
+            exit(EXIT_FAILURE);
+        } else {
+            while (fgets(buffer, BUF_SIZE, fp) != NULL) {
+                send(connfd, buffer, strlen(buffer), 0);
+            }
+            fclose(fp);
+        }
+    }
+}
+
+
+
+/*************************************************************************/
+// GETTING IP ADDRESS ASSOCIATED WITH SOCKET
+void get_ip_address(int sockfd) {
+
+    // Note: if IP address is 0.0.0.0, this means server is configured
+    // to listen on all IPv4 addresses of the local machine.
+
+    struct sockaddr_in check_addr;
+    memset(&check_addr, '0', sizeof(check_addr));
+
+    socklen_t alenp = sizeof(check_addr);
+    int a = getsockname(sockfd, (struct sockaddr*)&check_addr, &alenp);
+
+    char ip_address[16];
+    inet_ntop(AF_INET, &check_addr.sin_addr, ip_address, sizeof(ip_address));
+
+    printf("a = %d\n", a);
+    printf("IPv4 address: %s\n", ip_address);
 }
