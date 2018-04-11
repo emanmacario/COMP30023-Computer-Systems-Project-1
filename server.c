@@ -11,14 +11,13 @@
 #include <arpa/inet.h>
 
 
-#define SERVER_PORT 12345
+
 #define BUF_SIZE 4096
 #define QUEUE_SIZE 10
-
 #define NUM_PARAMS 3
 
 
-
+// Function prototypes
 void get_content_type(char *filename, char *content_type);
 void usage(char *prog_name);
 
@@ -31,7 +30,7 @@ int main(int argc, char *argv[]) {
     } 
 
     // get the port number and path to web root
-    int port_num = atoi(argv[1]);
+    short port_num = atoi(argv[1]);
     char *path_to_web_root = argv[2];
 
     //printf("Port number: %d\nPath to web root: %s\n", port_num, path_to_web_root);
@@ -57,7 +56,7 @@ int main(int argc, char *argv[]) {
 
     // Note: sin_addr.s_addr is just a 32 bit int (4 bytes)
 
-    serv_addr.sin_port = htons(SERVER_PORT);  // listen on the default port specified
+    serv_addr.sin_port = htons(port_num);  // listen on the port specified in cmd line
 
 
     // create a socket
@@ -84,7 +83,34 @@ int main(int argc, char *argv[]) {
     // Socket is now set up and bound. Wait for connection and process it.
     // Use the accept function to retrieve a connect request and convert it
     // into a connection.
-    connfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clilen); 
+
+
+    // Main loop of server
+    while (1) {
+
+        // Block until a connection request arrives
+        connfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clilen);
+
+        // Check if connection was successfull
+        if (connfd < 0) {
+            perror("ERROR on accept");
+            exit(0);
+        }
+
+        // Read from a sokcet
+        n = read(sockfd, buffer, BUF_SIZE-1);
+        
+        if (n < 0) {
+            perror("ERROR reading from socket");
+            exit(0);
+        }
+
+        printf("%s\n",buffer);
+
+        
+    }
+
+    
 
     // Note: accept will block until a connect request arrives.
     // It can be modified to be non-blocking.
@@ -103,10 +129,7 @@ int main(int argc, char *argv[]) {
     // the original socket, sockfd.
 
 
-    if (connfd < 0) {
-        perror("ERROR on accept");
-        exit(1);
-    }
+    
 
 
 
@@ -142,5 +165,3 @@ void get_content_type(char *filename, char *content_type) {
         strcpy(content_type, "application/javascript");
     }
 }
-
-
