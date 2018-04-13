@@ -15,9 +15,9 @@
 #include <assert.h>
 
 
-#define BUF_SIZE 8192
-#define QUEUE_SIZE 10
-#define NUM_PARAMS 3
+#define BUF_SIZE 8192  // buffer size
+#define BACKLOG 10     // total pending connections queue will hold
+#define NUM_PARAMS 3   // number of command line arguments
 
 
 // Function prototypes
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     } 
 
     // get the port number and path to web root
-    uint16_t port_num = atoi(argv[1]);
+    char *port_num = argv[1];
     char *path_to_web_root = argv[2];
 
     //printf("Port number: %d\nPath to web root: %s\n", port_num, path_to_web_root);
@@ -44,34 +44,49 @@ int main(int argc, char *argv[]) {
     // buffer for outgoing files
     char buffer[BUF_SIZE];
 
-    // holds IP address of server
-    struct sockaddr_in serv_addr, cli_addr; // Note: cli_addr will be filled in with address of the peer socket.
-    socklen_t clilen;
-
     
-    memset(&serv_addr, '0', sizeof(serv_addr));  // initialise server address
-    memset(buffer, '0', sizeof(buffer)); // initialise send buffer
 
 
-    // build address structure to bind to socket
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // Listen on any IP address (socket endpoint will be bound to all the system's network interfaces)
+    int status;
+    struct addrinfo hints, *res; // point to results
 
-    // Note: sin_addr.s_addr is just a 32 bit unsigned int (i.e. uint32_t)
+    memset(&hints, 0, sizeof(hints)); // make sure struct is empty
+    hints.ai_family = AF_INET;        // use IPv4 address
+    hints.ai_socktype = SOCK_STREAM;  // TCP stream sockets
+    hints.ai_flags = AI_PASSIVE;      // fill in my IP for me
 
-    serv_addr.sin_port = htons(port_num);  // listen on the port specified in cmd line
+
+
+    status = getaddrinfo(NULL, port_num, &hints, &res);
+    if (status != 0) {
+        perror("Error getting address info\n");
+        fprintf(stderr, "%s\n", gai_strerror(status));
+    }
+
+
+    // res now points to a linked list of 1 or more struct addrinfos
 
 
     // create a socket
-    
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((sockfd = socket(res->ai_family, res->ai_socktype, 0)) < 0) {
         perror("Error opening socket\n");
         exit(EXIT_FAILURE);
     }
 
 
+
+    // set socket options to allow reuse of a port if server closes
+    int yes = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
+        perror("Error setting socket options\n");
+        exit(EXIT_FAILURE);
+    }
+
+
+
+
     // Bind the socket to the server address
-    if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+    if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
         perror("Error binding socket\n");
         exit(EXIT_FAILURE);
     }
@@ -82,12 +97,15 @@ int main(int argc, char *argv[]) {
 
     // Listen, which allocates space to queue incoming calls for the
     // case that several clients try to connect at the same time. (non-blocking call)
-    listen(sockfd, QUEUE_SIZE);
+    if (listen(sockfd, BACKLOG) < 0) {
+        perror("Error listening on socket\n");
+        exit(EXIT_FAILURE);
+    }
 
 
-    // Must initialise to contain the size (in bytes) of the structure pointed
-    // to by &cli_addr. See 'man accept' for more details.
-    clilen = sizeof(cli_addr);
+    struct sockaddr_storage client;
+    socklen_t client_len = sizeof(client);
+
 
     // Socket is now set up and bound. Wait for connection and process it.
     // Use the accept function to retrieve a connect request and convert it
@@ -96,10 +114,10 @@ int main(int argc, char *argv[]) {
 
     // Main loop of server
     int n;
-    while (1) {
+    for (;;) {
 
         // Block until a connection request arrives
-        connfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clilen);
+        connfd = accept(sockfd, (struct sockaddr*)&client, &client_len);
 
         // Check if connection was successfull
         if (connfd < 0) {
@@ -107,15 +125,23 @@ int main(int argc, char *argv[]) {
             exit(0);
         }
 
+        // Send a message
+        char *msg = "eman is the sickest";
+        send(connfd, msg, strlen(msg), 0);
+        
+
         // Read from a sokcet
-        n = read(sockfd, buffer, BUF_SIZE-1);
+        n = read(connfd, buffer, BUF_SIZE-1);
         
         if (n < 0) {
             perror("ERROR reading from socket");
             exit(0);
         }
 
-        printf("%s\n",buffer);        
+
+
+
+        printf("%s",buffer);        
     }
 
     
@@ -143,6 +169,9 @@ int main(int argc, char *argv[]) {
 
 
 
+    freeaddrinfo(res);
+
+
     return 0;
 }
 
@@ -164,7 +193,7 @@ void usage(char *prog_name) {
 
 /* Parse the HTTP request line to get the filename.
  */
-void get_filename(char *request_line) {
+char *get_filename(char *request_line) {
 
     char *filename = malloc(strlen(request_line));
     assert(filename);
