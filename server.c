@@ -15,7 +15,7 @@
 #include <assert.h>
 
 
-#define BUF_SIZE 128
+#define BUF_SIZE 8192
 #define QUEUE_SIZE 10
 #define NUM_PARAMS 3
 
@@ -158,6 +158,21 @@ int main(int argc, char *argv[]) {
 void usage(char *prog_name) {
     printf("Usage: %s [port number] [path to web root]\n", prog_name);
     exit(EXIT_SUCCESS);
+}
+
+
+
+/* Parse the HTTP request line to get the filename.
+ */
+void get_filename(char *request_line) {
+
+    char *filename = malloc(strlen(request_line));
+    assert(filename);
+
+    // Get the filename from the request line
+    sscanf(request_line, "GET %s HTTP/1.0\r\n", filename);
+
+    return filename;
 }
 
 
