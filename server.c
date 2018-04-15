@@ -91,14 +91,8 @@ char *get_filename(char *request_line) {
         sscanf(request_line, "GET %s HTTP/1.1\n", filename);
     }
 
-    // Free request line since we don't need it anymore
-    // NOTE: We actually need it for the HTTP version
-    free(request_line);
-
     return filename;
 }
-
-
 
 
 
@@ -149,7 +143,6 @@ char *get_content_type(char *filename) {
     } else if (strstr(filename, ".js") != NULL) {
         strcpy(content_type, "application/javascript");
     }
-
     return content_type;
 }
 
@@ -269,7 +262,8 @@ int main(int argc, char *argv[]) {
 
     printf("Successfully set socket options\n");
 
-    // Bind the socket to the server address
+
+
     if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
         perror("Error binding socket");
         exit(EXIT_FAILURE);
@@ -312,7 +306,6 @@ int main(int argc, char *argv[]) {
         printf("Successfully accepted a client connection request\n");
 
         
-
         // Process a request (just print info about the shit)
         char *request_line = get_request_line(connfd);
         printf("HTTP Request Line: %s", request_line);
@@ -327,13 +320,6 @@ int main(int argc, char *argv[]) {
         printf("Path to file:      %s\n", path_to_file);
 
 
-
-        // Send a message
-        char *msg = "eman is the sickest";
-        send(connfd, msg, strlen(msg), 0);
-
-        printf("Successfully sent the message!\n");
-        /*
         // Open the file and send its contents to client
         FILE *fp;
         if ((fp = fopen(path_to_file, "r")) == NULL) {
@@ -348,8 +334,15 @@ int main(int argc, char *argv[]) {
             fclose(fp);
         }
         printf("Succesfully sent requested file\n");
-        */
+
+        // Close the connection to the client
         close(connfd);
+
+        // Free allocated memory
+        free(request_line);
+        free(filename);
+        free(content_type);
+        free(path_to_file);
     }
 
     
