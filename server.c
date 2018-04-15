@@ -21,6 +21,12 @@
 #define CONTENT_TYPE_LEN 22
 
 
+typedef struct {
+    char *filename;
+    char *response_code;
+} http_response_t;
+
+
 // Function prototypes
 char *get_content_type(char *filename);
 void usage(char *prog_name);
@@ -42,9 +48,9 @@ void usage(char *prog_name) {
 
 // Reads in a request from the file descriptor associated with
 // a connection
-char *get_request_line(int connfd) {
+char *get_request_line(int newfd) {
 
-    FILE *fdstream = fdopen(connfd, "r");
+    FILE *fdstream = fdopen(newfd, "r");
 
     if (fdstream == NULL) {
         perror("Error opening file descriptor");
@@ -130,8 +136,14 @@ char *get_path_to_file(char *path_to_web_root, char *filename) {
  */
 char *get_content_type(char *filename) {
 
-    char *content_type = malloc(sizeof(char)*(CONTENT_TYPE_LEN+1));
-    assert(content_type);
+    // The max length content type i.e. application/javascript
+    const size_t max_content_type_len = 22;
+
+    char *content_type = malloc(sizeof(char)*(max_content_type_len+1));
+    if (content_type == NULL) {
+        perror("Failed to allocate memory to content type");
+        exit(EXIT_FAILURE);
+    }
 
     // Get the content type associated with the file extension.
     if (strstr(filename, ".html") != NULL) {
@@ -148,11 +160,101 @@ char *get_content_type(char *filename) {
 
 
 
+void handle_request(int newfd) {
+
+    // Process a request (just print info about the shit)
+    char *request_line = get_request_line(newfd);
+    char *filename     = get_filename(request_line);
+    char *content_type = get_content_type(filename);
+    char *path_to_file = get_path_to_file(path_to_web_root, filename);
+
+
+    // Open the file and send its contents to client
+    FILE *fp;
+    if ((fp = fopen(path_to_file, "r")) == NULL) {
+        // TO DO: Send 404 response
+    } else {
+        printf("Sending file...\n");
+        while (fgets(buffer, BUF_SIZE, fp) != NULL) {
+            send(newfd, buffer, strlen(buffer), 0);
+            printf("%s", buffer);
+        }
+        fclose(fp);
+    }
+
+
+    // Free allocated memory
+    free(request_line);
+    free(filename);
+    free(content_type);
+    free(path_to_file);
+}
+
+
+/* Opens up a file and returns a string 
+ * containing the contents of the file.
+ */
+char *get_body(FILE *fp) {
+    // Sanity check
+    assert(fp);
+
+    // Initialise memory for body
+    size_t size = 1;
+    char *body = malloc(sizeof(char)*size);
+    if (body == NULL) {
+        perror("Error allocating memory to HTTP response body");
+        exit(EXIT_FAILURE);
+    }
+    body[0] = '\0';
+
+    ssize_t read;
+    size_t len = 0;
+    char *line = NULL;
+    while ((read = getline(&line, &len, fp)) != -1) {
+        // allocate extra space for line just read
+        body = realloc(body, size+len);
+        // update the size of the body
+        size += len;
+        // append the line to the body
+        strcat(body, line);
+        // Need to free and reset pointer
+        free(line);
+        line = NULL;
+    }
+    free(line);
+    line = NULL;
+
+    // Close the file here
+    fclose(fp);
+
+    return body;
+}
+
+
+
+void response_404(int newfd) {
+
+    send 
+
+}
+
+
+
+void response_200(int newfd) {
+
+}
+
+
+void send_response(int newfd, char *response) {
+
+}
+
+
 /****************************************************************************/
 // FUNCTIONS UNSURE OF
 
 void serve(int sockfd, char *filename) {
-    int connfd;
+    int newfd;
     FILE *fp;
     char buffer[BUF_SIZE];
 
@@ -160,7 +262,7 @@ void serve(int sockfd, char *filename) {
     for (;;) {
 
         // Block until a new connection is established
-        if ((connfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
+        if ((newfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
             perror("Error on accept\n");
             exit(EXIT_FAILURE);
         }
@@ -171,7 +273,7 @@ void serve(int sockfd, char *filename) {
             exit(EXIT_FAILURE);
         } else {
             while (fgets(buffer, BUF_SIZE, fp) != NULL) {
-                send(connfd, buffer, strlen(buffer), 0);
+                send(newfd, buffer, strlen(buffer), 0);
             }
             fclose(fp);
         }
@@ -216,7 +318,7 @@ int main(int argc, char *argv[]) {
     char *path_to_web_root = argv[2];
 
 
-    int sockfd, connfd;
+    int sockfd, newfd;
 
     // buffer for outgoing files
     char buffer[BUF_SIZE];
@@ -295,61 +397,30 @@ int main(int argc, char *argv[]) {
     for (;;) {
 
         // Block until a connection request arrives
-        connfd = accept(sockfd, (struct sockaddr*)&client, &client_len);
+        newfd = accept(sockfd, (struct sockaddr*)&client, &client_len);
 
         // Check if connection was successfull
-        if (connfd < 0) {
+        if (newfd < 0) {
             perror("ERROR on accept");
             exit(0);
         }
 
         printf("Successfully accepted a client connection request\n");
 
+
+        handle_request(newfd);
         
-        // Process a request (just print info about the shit)
-        char *request_line = get_request_line(connfd);
-        printf("HTTP Request Line: %s", request_line);
-
-        char *filename = get_filename(request_line);
-        printf("File requested:    %s\n", filename);
-
-        char *content_type = get_content_type(filename);
-        printf("Content-type:      %s\n", content_type);
-
-        char *path_to_file = get_path_to_file(path_to_web_root, filename);
-        printf("Path to file:      %s\n", path_to_file);
+        
 
 
-        // Open the file and send its contents to client
-        FILE *fp;
-        if ((fp = fopen(path_to_file, "r")) == NULL) {
-            perror("Error opening file");
-            exit(EXIT_FAILURE);
-        } else {
-            printf("Sending file...\n");
-            while (fgets(buffer, BUF_SIZE, fp) != NULL) {
-                send(connfd, buffer, strlen(buffer), 0);
-                printf("%s", buffer);
-            }
-            fclose(fp);
-        }
+        
         printf("Succesfully sent requested file\n");
 
         // Close the connection to the client
-        close(connfd);
-
-        // Free allocated memory
-        free(request_line);
-        free(filename);
-        free(content_type);
-        free(path_to_file);
+        close(newfd);
     }
 
     
-
-    // Note: accept will block until a connect request arrives.
-    // It can be modified to be non-blocking.
-
 
     // If we don't care about a client's identity, can set client address and
     // length parameters (last 2 parameters to accept) as NULL. Otherwise,
@@ -357,21 +428,12 @@ int main(int argc, char *argv[]) {
     // enough to hold the address, and set the integer pointed to by len to
     // the size of the buffer in bytes.
 
-
-    // Note: the file descriptor returned by accept is a socket descriptor
-    // that is connected to the client that called connect. This new socket
-    // descriptor, e.g. connfd has the same socket type and address family as
-    // the original socket, sockfd.
-
-
     
     /* close socket */
     close(sockfd);
 
-
     /* free the linked list of results for IP addresses of host */
     freeaddrinfo(res);
-
 
     return 0;
 }
