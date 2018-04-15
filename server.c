@@ -75,7 +75,7 @@ char *get_request_line(int newfd) {
 
 
     fflush(fdstream);
-    fclose(fdstream);
+    //fclose(fdstream); // THINK THIS IS A BUG, LEADING TO INVALID FILE DESCRIPTOR DURING SEND
 
     // NEED TO FREE THE ALLOCATED BUFFER LATER
     return request_line;
@@ -181,7 +181,7 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     if ((fp = fopen(path_to_file, "r")) == NULL) {
         // File does not exist on server
         http_response = 
-            make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type, "\n");
+            make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type, "");
     } else {
         // Retrieve contents of file to put in response body
         body = get_body(fp);
@@ -257,7 +257,7 @@ char *make_http_response(char *status_line, char *content_type, char *body) {
     char *content_type_header = make_content_type_header(content_type);
 
     // Calculate the size of the http response (not including null byte)
-    response_size = strlen(status_line) + strlen(content_type_header)
+    response_size = strlen(status_line) + strlen(content_type_header) + 1
                                         + strlen(body);
 
     // Allocate memory for response
@@ -273,6 +273,7 @@ char *make_http_response(char *status_line, char *content_type, char *body) {
     // Construct the HTTP response message
     strcat(http_response, status_line);
     strcat(http_response, content_type_header);
+    strcat(http_response, "\n");
     strcat(http_response, body);
     
     // Free the memory allocated to content type header
@@ -287,7 +288,7 @@ char *make_content_type_header(char *content_type) {
     assert(content_type);
 
     // The base size of the 'Content-Type' header,
-    // including newline and whitespace characters
+    // including two newline and one whitespace characters
     const size_t base_size = 15;
 
     // Calculate size of content type header (without nullbyte)
@@ -318,13 +319,16 @@ char *make_content_type_header(char *content_type) {
  */
 void send_http_response(int newfd, char *http_response) {
 
-    size_t bytes_sent;
+    ssize_t bytes_sent = 0;
     bytes_sent = send(newfd, http_response, strlen(http_response), 0);
 
     if (bytes_sent < 0) {
         perror("Error sending HTTP response");
         exit(EXIT_FAILURE);
     }
+
+
+    //printf("Nbytes sent: %zu\n", bytes_sent);
 }
 
 
@@ -399,7 +403,7 @@ int main(int argc, char *argv[]) {
     int sockfd, newfd;
 
     // buffer for outgoing files
-    char buffer[BUF_SIZE];
+    //char buffer[BUF_SIZE];
 
 
     int status;
@@ -416,39 +420,53 @@ int main(int argc, char *argv[]) {
     if (status != 0) {
         perror("Error getting address info");
         fprintf(stderr, "%s\n", gai_strerror(status));
+        exit(EXIT_FAILURE);
     }
 
 
     // res now points to a linked list of 1 or more struct addrinfos
 
+    // Iterate through the linked list of results, and bind
+    // a socket to the first available.
+    struct addrinfo *p;
+    for (p = res; p != NULL; p = p->ai_next) {
+        // create a socket
+        if ((sockfd = socket(p->ai_family, p->ai_socktype, 0)) < 0) {
+            perror("Error creating socket");
+            // Just have to skip this one!
+            continue;
+        }
 
-    // create a socket
-    if ((sockfd = socket(res->ai_family, res->ai_socktype, 0)) < 0) {
-        perror("Error opening socket");
+        // set socket options to allow reuse of a port if server closes
+        int yes = 1;
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
+            perror("Error setting socket options");
+            exit(EXIT_FAILURE);
+        }
+
+        // Try binding the socket
+        if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
+            perror("Error binding socket");
+            // Again, if it fails, simply close the socket and skip it!
+            close(sockfd);
+            continue;
+        }
+        break;
+    }
+
+    /* free the linked list of results for IP addresses of host */
+    freeaddrinfo(res);
+
+    // Sanity check to see if we've successfully bound a socket.
+    if (p == NULL) {
+        fprintf(stderr, "Server failed to bind a socket\n");
         exit(EXIT_FAILURE);
     }
 
+
+    // DEBUGGING
     printf("Successfully created socket\n");
-
-
-
-    // set socket options to allow reuse of a port if server closes
-    int yes = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
-        perror("Error setting socket options");
-        exit(EXIT_FAILURE);
-    }
-
-
     printf("Successfully set socket options\n");
-
-
-
-    if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
-        perror("Error binding socket");
-        exit(EXIT_FAILURE);
-    }
-
     printf("Successfully bound socket\n");
 
 
@@ -489,7 +507,7 @@ int main(int argc, char *argv[]) {
         handle_http_request(newfd, path_to_web_root);
         
         
-        printf("Succesfully sent requested file\n");
+        printf("\nSuccesfully sent requested file\n");
 
         // Close the connection to the client
         close(newfd);
@@ -506,9 +524,6 @@ int main(int argc, char *argv[]) {
     
     /* close socket */
     close(sockfd);
-
-    /* free the linked list of results for IP addresses of host */
-    freeaddrinfo(res);
 
     return 0;
 }
