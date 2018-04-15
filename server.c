@@ -187,6 +187,7 @@ void handle_http_request(int newfd, char *path_to_web_root) {
         body = get_body(fp);
         http_response = 
             make_http_response("HTTP/1.0 200 OK\n", content_type, body);
+        free(body);
     }
 
     // FOR DEBUGGING
@@ -200,7 +201,6 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     free(filename);
     free(content_type);
     free(path_to_file);
-    free(body);
     free(http_response);
 }
 
@@ -286,8 +286,12 @@ char *make_content_type_header(char *content_type) {
     // Sanity checking
     assert(content_type);
 
+    // The base size of the 'Content-Type' header,
+    // including newline and whitespace characters
+    const size_t base_size = 15;
+
     // Calculate size of content type header (without nullbyte)
-    size_t content_type_header_size = 15 + strlen(content_type);
+    size_t content_type_header_size = base_size + strlen(content_type);
 
     // Allocate and initialise memory for content type header
     char *content_type_header;
