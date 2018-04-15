@@ -86,10 +86,13 @@ char *get_request_line(int newfd) {
  */
 char *get_filename(char *request_line) {
 
-    // TODO: if requested file is "/", need filename to be "index.html"
-
+    // Allocate and initialise memory for filename
     char *filename = malloc(sizeof(char)*strlen(request_line));
-    assert(filename);
+    if (filename == NULL) {
+        perror("Error allocating memory for filename");
+        exit(EXIT_FAILURE);
+    }
+    memset(filename, '\0', strlen(request_line));
 
     // Get the filename from the request line
     if (sscanf(request_line, "GET %s HTTP/1.0\n", filename) != 1) {
@@ -98,9 +101,13 @@ char *get_filename(char *request_line) {
         sscanf(request_line, "GET %s HTTP/1.1\n", filename);
     }
 
+    // If requested file is "/", need filename to be "index.html"
+    if (strcmp(filename, "/") == 0) {
+        strcat(filename, "index.html");
+    }
+
     return filename;
 }
-
 
 
 // Gets the path to the file requested. Can either be an absolute
@@ -121,9 +128,6 @@ char *get_path_to_file(char *path_to_web_root, char *filename) {
     // Create the path name from the web root and requested filename
     strcpy(path, path_to_web_root);
     strcat(path, filename);
-
-    // Free memory allocated to filename, since we don't need it anymore
-    free(filename);
 
     return path;
 }
@@ -163,15 +167,13 @@ char *get_content_type(char *filename) {
 
 void handle_http_request(int newfd, char *path_to_web_root) {
 
-    // Process a request
+    // Process a request, and extract relevant information
     char *request_line = get_request_line(newfd);
     char *filename     = get_filename(request_line);
     char *content_type = get_content_type(filename);
     char *path_to_file = get_path_to_file(path_to_web_root, filename);
 
-    printf("Request line: %s", request_line);
-
-    // Send the appropriate HTTP response, depending 
+    // Construct the appropriate HTTP response, depending 
     // on whether the requested file exists or not.
     char *http_response;
     char *body;
@@ -186,6 +188,9 @@ void handle_http_request(int newfd, char *path_to_web_root) {
         http_response = 
             make_http_response("HTTP/1.0 200 OK\n", content_type, body);
     }
+
+    // FOR DEBUGGING
+    printf("%s", http_response);
 
     // Actually send the HTTP response to the client
     send_http_response(newfd, http_response);
@@ -480,9 +485,6 @@ int main(int argc, char *argv[]) {
         handle_http_request(newfd, path_to_web_root);
         
         
-
-
-        
         printf("Succesfully sent requested file\n");
 
         // Close the connection to the client
@@ -506,6 +508,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
-
-
