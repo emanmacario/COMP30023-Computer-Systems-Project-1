@@ -30,9 +30,15 @@ typedef struct {
 // Function prototypes
 char *get_content_type(char *filename);
 void usage(char *prog_name);
-
-
-
+char *get_request_line(int newfd);
+char *get_filename(char *request_line);
+char *get_path_to_file(char *path_to_web_root, char *filename);
+char *get_content_type(char *filename);
+void handle_http_request(int newfd, char *path_to_web_root);
+char *get_body(FILE *fp);
+char *make_http_response(char *status_line, char *content_type, char *body);
+char *make_content_type_header(char *content_type);
+void send_http_response(int newfd, char *http_response);
 
 
 /* Gives user information on how
@@ -68,13 +74,6 @@ char *get_request_line(int newfd) {
     }
 
 
-    /* MIGHT NEED THIS IF NEED TO FLUSH THE STREAM
-    while ((read = getline(&request_line, &len, fdstream)) != -1) {
-        printf("Retrieved line of length: %zu\n", read);
-        printf("Line: %s\n", request_line);
-    }
-    */
-
     fflush(fdstream);
     fclose(fdstream);
 
@@ -86,6 +85,8 @@ char *get_request_line(int newfd) {
 /* Parse the HTTP request line to get the filename.
  */
 char *get_filename(char *request_line) {
+
+    // TODO: if requested file is "/", need filename to be "index.html"
 
     char *filename = malloc(sizeof(char)*strlen(request_line));
     assert(filename);
@@ -160,39 +161,48 @@ char *get_content_type(char *filename) {
 
 
 
-void handle_request(int newfd) {
+void handle_http_request(int newfd, char *path_to_web_root) {
 
-    // Process a request (just print info about the shit)
+    // Process a request
     char *request_line = get_request_line(newfd);
     char *filename     = get_filename(request_line);
     char *content_type = get_content_type(filename);
     char *path_to_file = get_path_to_file(path_to_web_root, filename);
 
+    printf("Request line: %s", request_line);
 
-    // Open the file and send its contents to client
+    // Send the appropriate HTTP response, depending 
+    // on whether the requested file exists or not.
+    char *http_response;
+    char *body;
     FILE *fp;
     if ((fp = fopen(path_to_file, "r")) == NULL) {
-        // TO DO: Send 404 response
+        // File does not exist on server
+        http_response = 
+            make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type, "\n");
     } else {
-        printf("Sending file...\n");
-        while (fgets(buffer, BUF_SIZE, fp) != NULL) {
-            send(newfd, buffer, strlen(buffer), 0);
-            printf("%s", buffer);
-        }
-        fclose(fp);
+        // Retrieve contents of file to put in response body
+        body = get_body(fp);
+        http_response = 
+            make_http_response("HTTP/1.0 200 OK\n", content_type, body);
     }
 
+    // Actually send the HTTP response to the client
+    send_http_response(newfd, http_response);
 
-    // Free allocated memory
+    // Free all allocated memory for this response
     free(request_line);
     free(filename);
     free(content_type);
     free(path_to_file);
+    free(body);
+    free(http_response);
 }
 
 
 /* Opens up a file and returns a string 
- * containing the contents of the file.
+ * containing the contents of the file,
+ * to be sent in the HTTP response body.
  */
 char *get_body(FILE *fp) {
     // Sanity check
@@ -227,26 +237,85 @@ char *get_body(FILE *fp) {
     // Close the file here
     fclose(fp);
 
+    // No memory leaks here mate! :)
     return body;
 }
 
 
 
-void response_404(int newfd) {
+char *make_http_response(char *status_line, char *content_type, char *body) {
 
-    send 
+    size_t response_size;
+    char *http_response;
 
+    // First construct the 'Content-Type' header
+    char *content_type_header = make_content_type_header(content_type);
+
+    // Calculate the size of the http response (not including null byte)
+    response_size = strlen(status_line) + strlen(content_type_header)
+                                        + strlen(body);
+
+    // Allocate memory for response
+    http_response = malloc(sizeof(char)*(response_size + 1));
+    if (http_response == NULL) {
+        perror("Error allocating memory to HTTP response");
+        exit(EXIT_FAILURE);
+    }
+
+    // Initialise memory so we can write over it safely
+    memset(http_response, '\0', response_size+1);
+
+    // Construct the HTTP response message
+    strcat(http_response, status_line);
+    strcat(http_response, content_type_header);
+    strcat(http_response, body);
+    
+    // Free the memory allocated to content type header
+    free(content_type_header);
+
+    return http_response;
 }
 
 
+char *make_content_type_header(char *content_type) {
+    // Sanity checking
+    assert(content_type);
 
-void response_200(int newfd) {
+    // Calculate size of content type header (without nullbyte)
+    size_t content_type_header_size = 15 + strlen(content_type);
 
+    // Allocate and initialise memory for content type header
+    char *content_type_header;
+    content_type_header = malloc(sizeof(char)*(content_type_header_size+1));
+    if (content_type_header == NULL) {
+        perror("Error allocating memory for content type header");
+        exit(EXIT_FAILURE);
+    }
+    memset(content_type_header, '\0', content_type_header_size+1);
+
+    // Construct the header
+    strcat(content_type_header, "Content-Type: ");
+    strcat(content_type_header, content_type);
+    strcat(content_type_header, "\n");
+
+    return content_type_header;
 }
 
 
-void send_response(int newfd, char *response) {
+/**
+ * Takes as input a file descriptor describing a client connection,
+ * and sends the HTTP response message for that client through the
+ * associated socket.
+ */
+void send_http_response(int newfd, char *http_response) {
 
+    size_t bytes_sent;
+    bytes_sent = send(newfd, http_response, strlen(http_response), 0);
+
+    if (bytes_sent < 0) {
+        perror("Error sending HTTP response");
+        exit(EXIT_FAILURE);
+    }
 }
 
 
@@ -408,7 +477,7 @@ int main(int argc, char *argv[]) {
         printf("Successfully accepted a client connection request\n");
 
 
-        handle_request(newfd);
+        handle_http_request(newfd, path_to_web_root);
         
         
 
