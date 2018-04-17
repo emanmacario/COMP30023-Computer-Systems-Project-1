@@ -2,7 +2,7 @@
 # Made by Emmanuel Macario
 
 CC     = gcc
-CFLAGS = -Wall
+CFLAGS = -Wall -pthread -g
 OBJ    = server.o
 EXE    = server
 
