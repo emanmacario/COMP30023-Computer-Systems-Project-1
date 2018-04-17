@@ -355,61 +355,6 @@ void send_http_response(int newfd, void *response, size_t size) {
 }
 
 
-/****************************************************************************/
-// FUNCTIONS UNSURE OF
-
-void serve(int sockfd, char *filename) {
-    int newfd;
-    FILE *fp;
-    char buffer[BUFFER_SIZE];
-
-    // Forever
-    for (;;) {
-
-        // Block until a new connection is established
-        if ((newfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
-            perror("Error on accept\n");
-            exit(EXIT_FAILURE);
-        }
-
-        // Open the file and send its contents to client
-        if ((fp = fopen(filename, "r")) == NULL) {
-            perror("Error opening file\n");
-            exit(EXIT_FAILURE);
-        } else {
-            while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
-                send(newfd, buffer, strlen(buffer), 0);
-            }
-            fclose(fp);
-        }
-    }
-}
-
-
-/*************************************************************************/
-// GETTING IP ADDRESS ASSOCIATED WITH SOCKET
-void get_ip_address(int sockfd) {
-
-    // Note: if IP address is 0.0.0.0, this means server is configured
-    // to listen on all IPv4 addresses of the local machine.
-
-    struct sockaddr_in check_addr;
-    memset(&check_addr, '0', sizeof(check_addr));
-
-    socklen_t alenp = sizeof(check_addr);
-    int a = getsockname(sockfd, (struct sockaddr*)&check_addr, &alenp);
-
-    char ip_address[16];
-    inet_ntop(AF_INET, &check_addr.sin_addr, ip_address, sizeof(ip_address));
-
-    printf("a = %d\n", a);
-    printf("IPv4 address: %s\n", ip_address);
-}
-
-/*************************************************************************/
-
-
-
 /** MAIN FUNCTION **/
 int main(int argc, char *argv[]) {
 
@@ -424,14 +369,7 @@ int main(int argc, char *argv[]) {
 
 
     int sockfd, newfd;
-
-    // buffer for outgoing files
-    //char buffer[BUFFER_SIZE];
-
-
-    int status;
-    struct addrinfo hints, *res; // point to results
-
+    struct addrinfo hints, *res;      // point to results
     memset(&hints, 0, sizeof(hints)); // make sure struct is empty
     hints.ai_family = AF_INET;        // use IPv4 address
     hints.ai_socktype = SOCK_STREAM;  // TCP stream sockets
@@ -439,28 +377,28 @@ int main(int argc, char *argv[]) {
 
 
 
-    status = getaddrinfo(NULL, port_num, &hints, &res);
-    if (status != 0) {
+    // Initialise structs with server information
+    int status;
+
+    if ((status = getaddrinfo(NULL, port_num, &hints, &res)) != 0) {
         perror("Error getting address info");
         fprintf(stderr, "%s\n", gai_strerror(status));
         exit(EXIT_FAILURE);
     }
 
 
-    // res now points to a linked list of 1 or more struct addrinfos
-
     // Iterate through the linked list of results, and bind
-    // a socket to the first available.
+    // server to the first available socket.
     struct addrinfo *p;
     for (p = res; p != NULL; p = p->ai_next) {
-        // create a socket
+        // Create a socket
         if ((sockfd = socket(p->ai_family, p->ai_socktype, 0)) < 0) {
             perror("Error creating socket");
             // Just have to skip this one!
             continue;
         }
 
-        // set socket options to allow reuse of a port if server closes
+        // Set option to allow reuse of a port if the server terminates.
         int yes = 1;
         if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
             perror("Error setting socket options");
@@ -477,7 +415,7 @@ int main(int argc, char *argv[]) {
         break;
     }
 
-    /* free the linked list of results for IP addresses of host */
+    // Free the linked list of results for IP addresses of host.
     freeaddrinfo(res);
 
     // Sanity check to see if we've successfully bound a socket.
