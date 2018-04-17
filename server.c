@@ -15,10 +15,9 @@
 #include <assert.h>
 
 
-#define BUF_SIZE 8192  // buffer size
+#define BUFFER_SIZE 8192  // buffer size
 #define BACKLOG 10     // total pending connections queue will hold
 #define NUM_PARAMS 3   // number of command line arguments
-#define CONTENT_TYPE_LEN 22
 
 
 typedef struct {
@@ -35,10 +34,10 @@ char *get_filename(char *request_line);
 char *get_path_to_file(char *path_to_web_root, char *filename);
 char *get_content_type(char *filename);
 void handle_http_request(int newfd, char *path_to_web_root);
-char *get_body(FILE *fp);
-char *make_http_response(char *status_line, char *content_type, char *body);
+unsigned char *get_body(int fd);
+char *make_http_response(char *status_line, char *content_type);
 char *make_content_type_header(char *content_type);
-void send_http_response(int newfd, char *http_response);
+void send_http_response(int newfd, void *http_response, size_t size);
 
 
 /* Gives user information on how
@@ -164,6 +163,15 @@ char *get_content_type(char *filename) {
 }
 
 
+size_t get_filesize(int fd) {
+    // Get the size of the file in bytes
+    size_t size = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+
+    return size;
+}
+
+
 
 void handle_http_request(int newfd, char *path_to_web_root) {
 
@@ -176,25 +184,33 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     // Construct the appropriate HTTP response, depending 
     // on whether the requested file exists or not.
     char *http_response;
-    char *body;
-    FILE *fp;
-    if ((fp = fopen(path_to_file, "r")) == NULL) {
+    unsigned char *body;
+
+    int fd;
+    size_t size;
+    if ((fd = open(filename, O_RDONLY)) == -1) {
         // File does not exist on server
+        printf("%s does not exist on server\n", path_to_file);
         http_response = 
-            make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type, "");
+            make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type);
+        size = 0;
+        body = NULL;
+
     } else {
-        // Retrieve contents of file to put in response body
-        body = get_body(fp);
+        // File exists on server
         http_response = 
-            make_http_response("HTTP/1.0 200 OK\n", content_type, body);
-        free(body);
+            make_http_response("HTTP/1.0 200 OK\n", content_type);
+
+        size = get_filesize(fd);
+        body = get_body(fd);
     }
 
     // FOR DEBUGGING
     printf("%s", http_response);
 
     // Actually send the HTTP response to the client
-    send_http_response(newfd, http_response);
+    send_http_response(newfd, http_response, size);
+    send_http_response(newfd, body, size);
 
     // Free all allocated memory for this response
     free(request_line);
@@ -202,45 +218,39 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     free(content_type);
     free(path_to_file);
     free(http_response);
+    free(body);
 }
+
 
 
 /* Opens up a file and returns a string 
  * containing the contents of the file,
  * to be sent in the HTTP response body.
  */
-char *get_body(FILE *fp) {
-    // Sanity check
-    assert(fp);
+unsigned char *get_body(int fd) {
+    // Empty message body (Error 404)
+    if (fd < 0) {
+        return NULL;
+    }
 
-    // Initialise memory for body
-    size_t size = 1;
-    char *body = malloc(sizeof(char)*size);
+    // Get the size of the file in bytes
+    size_t size = lseek(fd, 0, SEEK_END); // +1 for nullbyte
+    lseek(fd, 0, SEEK_SET);
+
+
+    unsigned char *body = malloc(sizeof(unsigned char)*size);
     if (body == NULL) {
         perror("Error allocating memory to HTTP response body");
         exit(EXIT_FAILURE);
     }
-    body[0] = '\0';
 
-    ssize_t read;
-    size_t len = 0;
-    char *line = NULL;
-    while ((read = getline(&line, &len, fp)) != -1) {
-        // allocate extra space for line just read
-        body = realloc(body, size+len);
-        // update the size of the body
-        size += len;
-        // append the line to the body
-        strcat(body, line);
-        // Need to free and reset pointer
-        free(line);
-        line = NULL;
-    }
-    free(line);
-    line = NULL;
+    ssize_t total = 0;
+    ssize_t bytes_read;
 
-    // Close the file here
-    fclose(fp);
+    while ((bytes_read = read(fd, body, size)) > 0) {
+        size -= bytes_read;
+        total += bytes_read;
+    }   
 
     // No memory leaks here mate! :)
     return body;
@@ -248,7 +258,7 @@ char *get_body(FILE *fp) {
 
 
 
-char *make_http_response(char *status_line, char *content_type, char *body) {
+char *make_http_response(char *status_line, char *content_type) {
 
     size_t response_size;
     char *http_response;
@@ -257,8 +267,7 @@ char *make_http_response(char *status_line, char *content_type, char *body) {
     char *content_type_header = make_content_type_header(content_type);
 
     // Calculate the size of the http response (not including null byte)
-    response_size = strlen(status_line) + strlen(content_type_header) + 1
-                                        + strlen(body);
+    response_size = strlen(status_line) + strlen(content_type_header) + 1;
 
     // Allocate memory for response
     http_response = malloc(sizeof(char)*(response_size + 1));
@@ -270,15 +279,13 @@ char *make_http_response(char *status_line, char *content_type, char *body) {
     // Initialise memory so we can write over it safely
     memset(http_response, '\0', response_size+1);
 
-    // Construct the HTTP response message
+    // Construct the HTTP response message status, header, and empty lines
     strcat(http_response, status_line);
     strcat(http_response, content_type_header);
     strcat(http_response, "\n");
-    strcat(http_response, body);
     
     // Free the memory allocated to content type header
     free(content_type_header);
-
     return http_response;
 }
 
@@ -317,16 +324,28 @@ char *make_content_type_header(char *content_type) {
  * and sends the HTTP response message for that client through the
  * associated socket.
  */
-void send_http_response(int newfd, char *http_response) {
+void send_http_response(int newfd, void *response, size_t size) {
+    // Error 404
+    if (response == NULL) {
+        return;
+    }
+
+    // Two types of responses, one for binary streams
+    if (size == 0) {
+        response = (char *)response;
+        size = strlen(response);
+    } else {
+        response = (unsigned char*) response;
+    }
+    
 
     ssize_t bytes_sent = 0;
-    bytes_sent = send(newfd, http_response, strlen(http_response), 0);
+    bytes_sent = send(newfd, response, size, 0);
 
-    if (bytes_sent < 0) {
+    if (bytes_sent < 0 || bytes_sent < size) {
         perror("Error sending HTTP response");
         exit(EXIT_FAILURE);
     }
-
 
     //printf("Nbytes sent: %zu\n", bytes_sent);
 }
@@ -338,7 +357,7 @@ void send_http_response(int newfd, char *http_response) {
 void serve(int sockfd, char *filename) {
     int newfd;
     FILE *fp;
-    char buffer[BUF_SIZE];
+    char buffer[BUFFER_SIZE];
 
     // Forever
     for (;;) {
@@ -354,7 +373,7 @@ void serve(int sockfd, char *filename) {
             perror("Error opening file\n");
             exit(EXIT_FAILURE);
         } else {
-            while (fgets(buffer, BUF_SIZE, fp) != NULL) {
+            while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
                 send(newfd, buffer, strlen(buffer), 0);
             }
             fclose(fp);
@@ -403,7 +422,7 @@ int main(int argc, char *argv[]) {
     int sockfd, newfd;
 
     // buffer for outgoing files
-    //char buffer[BUF_SIZE];
+    //char buffer[BUFFER_SIZE];
 
 
     int status;
