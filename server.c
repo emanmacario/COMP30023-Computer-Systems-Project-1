@@ -4,7 +4,7 @@
 #include <netinet/in.h>   // needed for internet address i.e. sockaddr_in and in_addr
 #include <netdb.h>
 
-
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,13 +12,8 @@
 #include <unistd.h>     // needed for read/close functions
 
 
-#include <assert.h>
-
-
 #define BUFFER_SIZE 8192  // buffer size
 #define BACKLOG 10     // total pending connections queue will hold
-#define NUM_PARAMS 3   // number of command line arguments
-
 
 
 // Function prototypes
@@ -42,7 +37,6 @@ void send_http_response(int newfd, void *http_response, size_t size);
  */
 void usage(char *prog_name) {
     printf("Usage: %s [port number] [path to web root]\n", prog_name);
-    exit(EXIT_SUCCESS);
 }
 
 
@@ -65,16 +59,14 @@ char *get_request_line(FILE *fdstream) {
         exit(EXIT_FAILURE);
     }
 
-
     fflush(fdstream);
-    //fclose(fdstream); // THINK THIS IS A BUG, LEADING TO INVALID FILE DESCRIPTOR DURING SEND
-
-    // NEED TO FREE THE ALLOCATED BUFFER LATER
     return request_line;
 }
 
 
-/* Parse the HTTP request line to get the filename.
+/**
+ * Parse the HTTP request line to get the name
+ * of the file requested by the client.
  */
 char *get_filename(char *request_line) {
 
@@ -88,12 +80,11 @@ char *get_filename(char *request_line) {
 
     // Get the filename from the request line
     if (sscanf(request_line, "GET %s HTTP/1.0\n", filename) != 1) {
-
-        // MIGHT NOT NEED THIS LINE
-        sscanf(request_line, "GET %s HTTP/1.1\n", filename);
+        fprintf(stderr, "Failed to scan request line for filename\n");
+        exit(EXIT_FAILURE);
     }
 
-    // If requested file is "/", need filename to be "index.html"
+    // If requested file is "/", set filename to "index.html"
     if (strcmp(filename, "/") == 0) {
         strcat(filename, "index.html");
     }
@@ -223,8 +214,6 @@ void handle_http_request(int newfd, char *path_to_web_root) {
 }
 
 
-
-
 /* Opens up a file and returns a string 
  * containing the contents of the file,
  * to be sent in the HTTP response body.
@@ -261,7 +250,10 @@ unsigned char *get_body(int fd) {
 }
 
 
-
+/**
+ * Constructs the status line and headers to be sent in the HTTP response.
+ * Appends the
+ */
 char *make_http_response(char *status_line, char *content_type) {
 
     size_t response_size;
@@ -270,7 +262,7 @@ char *make_http_response(char *status_line, char *content_type) {
     // First construct the 'Content-Type' header
     char *content_type_header = make_content_type_header(content_type);
 
-    // Calculate the size of the http response (not including null byte)
+    // Calculate the size of the http response, + 1 for newline.
     response_size = strlen(status_line) + strlen(content_type_header) + 1;
 
     // Allocate memory for response
@@ -326,10 +318,11 @@ char *make_content_type_header(char *content_type) {
 /**
  * Takes as input a file descriptor describing a client connection,
  * and sends the HTTP response message for that client through the
- * associated socket.
+ * associated TCP socket connecting the client and the server.
  */
 void send_http_response(int newfd, void *response, size_t size) {
-    // Error 404
+
+    // Empty response body.
     if (response == NULL) {
         return;
     }
@@ -350,36 +343,35 @@ void send_http_response(int newfd, void *response, size_t size) {
         perror("Error sending HTTP response");
         exit(EXIT_FAILURE);
     }
-
-    //printf("Nbytes sent: %zu\n", bytes_sent);
 }
 
 
 /** MAIN FUNCTION **/
 int main(int argc, char *argv[]) {
 
-    // check if command line arguments supplied
-    if (argc < NUM_PARAMS) {
+    // Check if command line arguments were supplied.
+    if (argc < 3) {
         usage(argv[0]);
+        exit(EXIT_FAILURE);
     } 
 
-    // get the port number and path to web root
+    // Get the port number and path to web root.
     char *port_num = argv[1];
     char *path_to_web_root = argv[2];
 
 
     int sockfd, newfd;
     struct addrinfo hints, *res;      // point to results
+
+
     memset(&hints, 0, sizeof(hints)); // make sure struct is empty
     hints.ai_family = AF_INET;        // use IPv4 address
     hints.ai_socktype = SOCK_STREAM;  // TCP stream sockets
     hints.ai_flags = AI_PASSIVE;      // fill in my IP for me
 
 
-
     // Initialise structs with server information
     int status;
-
     if ((status = getaddrinfo(NULL, port_num, &hints, &res)) != 0) {
         perror("Error getting address info");
         fprintf(stderr, "%s\n", gai_strerror(status));
