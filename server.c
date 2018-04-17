@@ -247,7 +247,6 @@ unsigned char *get_body(int fd) {
         perror("Error allocating memory to HTTP response body");
         exit(EXIT_FAILURE);
     }
-    body[size-1] = '\0';
 
     ssize_t total = 0;
     ssize_t bytes_read;
