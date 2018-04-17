@@ -223,7 +223,9 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     free(content_type);
     free(path_to_file);
     free(http_response);
-    free(body);
+    if (body != NULL) {
+        free(body);
+    }
 }
 
 
