@@ -103,7 +103,7 @@ char *get_path_to_file(char *path_to_web_root, char *filename) {
 
     // Allocate space for the path name
     char *path;
-    if ((path = malloc(sizeof(char) * path_len)) == NULL) {
+    if ((path = malloc(sizeof(char)*path_len)) == NULL) {
         perror("Error allocating memory for path name");
         exit(EXIT_FAILURE);
     }
@@ -237,13 +237,13 @@ unsigned char *get_body(int fd) {
 
     // The total bytes read from the file, used as 
     // an offset if file is not read in one go.
-    ssize_t total = 0;
+    ssize_t total_read = 0;
 
     // Read the contents of the file.
     ssize_t bytes_read;
     while ((bytes_read = read(fd, body, size)) > 0) {
         size -= bytes_read;
-        total += bytes_read;
+        total_read += bytes_read;
     }   
 
     return body;
