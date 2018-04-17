@@ -199,14 +199,9 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     }
 
 
-
-    // FOR DEBUGGING
-    //printf("%s", http_response);
-
+    // Get the content to be send in the HTTP response body.
     body = get_body(fd);
-    if (body != NULL) {
-        //printf("%s", body);
-    }
+
     
     // Actually send the HTTP response to the client
     send_http_response(newfd, http_response, 0);
@@ -221,6 +216,9 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     if (body != NULL) {
         free(body);
     }
+
+    // Close the file stream associated with the
+    // file descriptor describing the connection.
     fclose(fdstream);
 }
 
@@ -238,25 +236,27 @@ unsigned char *get_body(int fd) {
     }
 
     // Get the size of the file in bytes
-    size_t size = lseek(fd, 0, SEEK_END); //+ 1; // +1 for nullbyte
+    size_t size = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
 
-
+    // Allocate memory for the response body.
     unsigned char *body = malloc(sizeof(unsigned char)*size);
     if (body == NULL) {
         perror("Error allocating memory to HTTP response body");
         exit(EXIT_FAILURE);
     }
 
+    // The total bytes read from the file, used as 
+    // an offset if file is not read in one go.
     ssize_t total = 0;
-    ssize_t bytes_read;
 
+    // Read the contents of the file.
+    ssize_t bytes_read;
     while ((bytes_read = read(fd, body, size)) > 0) {
         size -= bytes_read;
         total += bytes_read;
     }   
 
-    // No memory leaks here mate! :)
     return body;
 }
 
@@ -459,7 +459,7 @@ int main(int argc, char *argv[]) {
         // Check if connection was successfull
         if (newfd < 0) {
             perror("ERROR on accept");
-            exit(0);
+            exit(EXIT_FAILURE);
         }
 
         printf("Successfully accepted a client connection request\n");
