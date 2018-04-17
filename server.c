@@ -20,16 +20,11 @@
 #define NUM_PARAMS 3   // number of command line arguments
 
 
-typedef struct {
-    char *filename;
-    char *response_code;
-} http_response_t;
-
 
 // Function prototypes
 char *get_content_type(char *filename);
 void usage(char *prog_name);
-char *get_request_line(int newfd);
+char *get_request_line(FILE *fdstream);
 char *get_filename(char *request_line);
 char *get_path_to_file(char *path_to_web_root, char *filename);
 char *get_content_type(char *filename);
@@ -38,6 +33,7 @@ unsigned char *get_body(int fd);
 char *make_http_response(char *status_line, char *content_type);
 char *make_content_type_header(char *content_type);
 void send_http_response(int newfd, void *http_response, size_t size);
+
 
 
 /* Gives user information on how
@@ -50,12 +46,9 @@ void usage(char *prog_name) {
 }
 
 
-
 // Reads in a request from the file descriptor associated with
 // a connection
-char *get_request_line(int newfd) {
-
-    FILE *fdstream = fdopen(newfd, "r");
+char *get_request_line(FILE *fdstream) {
 
     if (fdstream == NULL) {
         perror("Error opening file descriptor");
@@ -175,8 +168,10 @@ size_t get_filesize(int fd) {
 
 void handle_http_request(int newfd, char *path_to_web_root) {
 
+    FILE *fdstream = fdopen(newfd, "r");
+
     // Process a request, and extract relevant information
-    char *request_line = get_request_line(newfd);
+    char *request_line = get_request_line(fdstream);
     char *filename     = get_filename(request_line);
     char *content_type = get_content_type(filename);
     char *path_to_file = get_path_to_file(path_to_web_root, filename);
@@ -206,11 +201,11 @@ void handle_http_request(int newfd, char *path_to_web_root) {
 
 
     // FOR DEBUGGING
-    printf("%s", http_response);
+    //printf("%s", http_response);
 
     body = get_body(fd);
     if (body != NULL) {
-        printf("%s", body);
+        //printf("%s", body);
     }
     
     // Actually send the HTTP response to the client
@@ -226,6 +221,7 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     if (body != NULL) {
         free(body);
     }
+    fclose(fdstream);
 }
 
 
@@ -242,7 +238,7 @@ unsigned char *get_body(int fd) {
     }
 
     // Get the size of the file in bytes
-    size_t size = lseek(fd, 0, SEEK_END); // +1 for nullbyte
+    size_t size = lseek(fd, 0, SEEK_END); //+ 1; // +1 for nullbyte
     lseek(fd, 0, SEEK_SET);
 
 
@@ -251,6 +247,7 @@ unsigned char *get_body(int fd) {
         perror("Error allocating memory to HTTP response body");
         exit(EXIT_FAILURE);
     }
+    body[size-1] = '\0';
 
     ssize_t total = 0;
     ssize_t bytes_read;
