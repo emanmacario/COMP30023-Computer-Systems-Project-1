@@ -12,8 +12,16 @@
 #include <unistd.h>     // needed for read/close functions
 
 
+#include <pthread.h>    // for POSIX threads
+
 #define BUFFER_SIZE 8192  // buffer size
 #define BACKLOG 10     // total pending connections queue will hold
+
+
+struct request_info {
+    int newfd;
+    char *path_to_web_root;
+};
 
 
 // Function prototypes
@@ -23,7 +31,7 @@ char *get_request_line(FILE *fdstream);
 char *get_filename(char *request_line);
 char *get_path_to_file(char *path_to_web_root, char *filename);
 char *get_content_type(char *filename);
-void handle_http_request(int newfd, char *path_to_web_root);
+void *handle_http_request(void *arg);
 unsigned char *get_body(int fd);
 char *make_http_response(char *status_line, char *content_type);
 char *make_content_type_header(char *content_type);
@@ -157,15 +165,22 @@ size_t get_filesize(int fd) {
 
 
 
-void handle_http_request(int newfd, char *path_to_web_root) {
+void *handle_http_request(void *arg) {
 
+    struct request_info *info = (struct request_info*) arg;
+
+    int newfd = info->newfd;
+    char *path_to_web_root = info->path_to_web_root;
+
+    // Open the stream associated with the connection file descriptor
     FILE *fdstream = fdopen(newfd, "r");
 
-    // Process a request, and extract relevant information
+    // Process the request, and extract relevant information
     char *request_line = get_request_line(fdstream);
     char *filename     = get_filename(request_line);
     char *content_type = get_content_type(filename);
     char *path_to_file = get_path_to_file(path_to_web_root, filename);
+
 
     // Construct the appropriate HTTP response, depending 
     // on whether the requested file exists or not.
@@ -211,6 +226,14 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     // Close the file stream associated with the
     // file descriptor describing the connection.
     fclose(fdstream);
+
+    // Free the input struct
+    free(info);
+
+    // Close the connection to the client
+    close(newfd);
+
+    return NULL;
 }
 
 
@@ -457,13 +480,24 @@ int main(int argc, char *argv[]) {
         printf("Successfully accepted a client connection request\n");
 
 
-        handle_http_request(newfd, path_to_web_root);
+        // Initialise struct as argument to thread function
+        struct request_info *info = malloc(sizeof(struct request_info));
+        if (info == NULL) {
+            fprintf(stderr, "Failed to allocate memory for request info\n");
+            exit(EXIT_FAILURE);
+        }
+        *info = (struct request_info) {newfd, path_to_web_root};
+
+
+        pthread_t client_handler;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+
+        pthread_create(&client_handler, &attr, handle_http_request, info);
+        //pthread_join(client_handler, NULL);
         
         
         printf("\nSuccesfully sent requested file\n");
-
-        // Close the connection to the client
-        close(newfd);
     }
 
     
