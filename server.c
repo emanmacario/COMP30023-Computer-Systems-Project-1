@@ -187,30 +187,35 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     unsigned char *body;
 
     int fd;
-    size_t size;
-    if ((fd = open(filename, O_RDONLY)) == -1) {
+    if ((fd = open(path_to_file, O_RDONLY)) == -1) {
+
+        printf("Unable to open file at %s\n", path_to_file);
+
         // File does not exist on server
-        printf("%s does not exist on server\n", path_to_file);
         http_response = 
             make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type);
-        size = 0;
-        body = NULL;
-
     } else {
+
+        printf("Successfully opened file %s\n", path_to_file);
+
         // File exists on server
         http_response = 
             make_http_response("HTTP/1.0 200 OK\n", content_type);
-
-        size = get_filesize(fd);
-        body = get_body(fd);
     }
+
+
 
     // FOR DEBUGGING
     printf("%s", http_response);
 
+    body = get_body(fd);
+    if (body != NULL) {
+        printf("%s", body);
+    }
+    
     // Actually send the HTTP response to the client
-    send_http_response(newfd, http_response, size);
-    send_http_response(newfd, body, size);
+    send_http_response(newfd, http_response, 0);
+    send_http_response(newfd, body, get_filesize(fd));
 
     // Free all allocated memory for this response
     free(request_line);
@@ -220,6 +225,7 @@ void handle_http_request(int newfd, char *path_to_web_root) {
     free(http_response);
     free(body);
 }
+
 
 
 
