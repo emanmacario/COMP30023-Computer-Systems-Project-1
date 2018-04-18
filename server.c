@@ -32,7 +32,7 @@ char *get_filename(char *request_line);
 char *get_path_to_file(char *path_to_web_root, char *filename);
 char *get_content_type(char *filename);
 void *handle_http_request(void *arg);
-unsigned char *get_body(int fd);
+void send_response_body(int newfd, int fd);
 char *make_http_response(char *status_line, char *content_type);
 char *make_content_type_header(char *content_type);
 void send_http_response(int newfd, void *http_response, size_t size);
@@ -63,8 +63,7 @@ char *get_request_line(FILE *fdstream) {
 
     // Read the request line
     if ((read = getline(&request_line, &len, fdstream)) == -1) {
-        printf("Request line: %s\n", request_line);
-        perror("Error reading HTTP request");
+        perror("Error reading HTTP request line");
         exit(EXIT_FAILURE);
     }
 
@@ -156,16 +155,9 @@ char *get_content_type(char *filename) {
 }
 
 
-size_t get_filesize(int fd) {
-    // Get the size of the file in bytes
-    size_t size = lseek(fd, 0, SEEK_END);
-    lseek(fd, 0, SEEK_SET);
-
-    return size;
-}
-
-
-
+/**
+ * HTTP request handler function for a single worker thread.
+ */
 void *handle_http_request(void *arg) {
 
     struct request_info *info = (struct request_info*) arg;
@@ -186,7 +178,6 @@ void *handle_http_request(void *arg) {
     // Construct the appropriate HTTP response, depending 
     // on whether the requested file exists or not.
     char *http_response;
-    unsigned char *body;
 
     int fd;
     if ((fd = open(path_to_file, O_RDONLY)) == -1) {
@@ -206,13 +197,10 @@ void *handle_http_request(void *arg) {
     }
 
 
-    // Get the content to be send in the HTTP response body.
-    body = get_body(fd);
-
     
     // Actually send the HTTP response to the client
     send_http_response(newfd, http_response, 0);
-    send_http_response(newfd, body, get_filesize(fd));
+    send_response_body(newfd, fd);
 
     printf("\nSuccesfully sent requested file\n");
 
@@ -222,9 +210,6 @@ void *handle_http_request(void *arg) {
     free(content_type);
     free(path_to_file);
     free(http_response);
-    if (body != NULL) {
-        free(body);
-    }
 
     // Close the file stream associated with the
     // file descriptor describing the connection.
@@ -240,39 +225,59 @@ void *handle_http_request(void *arg) {
 }
 
 
-/* Opens up a file and returns a string 
- * containing the contents of the file,
- * to be sent in the HTTP response body.
+/**
+ * Takes as input the file descriptors for an open connection
+ * with a client, and one for a file, and sends the contents
+ * of the file to the client.
  */
-unsigned char *get_body(int fd) {
+void send_response_body(int newfd, int fd) {
     // Empty message body (Error 404)
     if (fd < 0) {
-        return NULL;
+        return;
     }
+
+    // The send buffer
+    unsigned char buffer[BUFFER_SIZE];
 
     // Get the size of the file in bytes
     size_t size = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
 
-    // Allocate memory for the response body.
-    unsigned char *body = malloc(sizeof(unsigned char)*size);
-    if (body == NULL) {
-        perror("Error allocating memory to HTTP response body");
-        exit(EXIT_FAILURE);
-    }
+
+    printf("Size of file: %lu bytes\n", size);
 
     // The total bytes read from the file, used as 
     // an offset if file is not read in one go.
-    ssize_t total_read = 0;
+    ssize_t total_bytes_read = 0;
+
+    ssize_t total_bytes_sent = 0;
+    ssize_t bytes_sent;
 
     // Read the contents of the file.
     ssize_t bytes_read;
-    while ((bytes_read = read(fd, body, size)) > 0) {
-        size -= bytes_read;
-        total_read += bytes_read;
-    }   
+    while ((bytes_read = read(fd, buffer, BUFFER_SIZE)) > 0) {
+        // Increase total
+        total_bytes_read += bytes_read;
+        // Send the contents to client
+        if ((bytes_sent = send(newfd, buffer, bytes_read, 0)) < 0) {
+            perror("Error sending buffer contents");
+            exit(EXIT_FAILURE);
+        }
+        printf("%s", buffer);
+        total_bytes_sent += bytes_sent;
+    }
 
-    return body;
+
+    printf("Total bytes sent: %zu bytes\n", total_bytes_sent);
+
+    // Check that we have correctly sent the file.
+    if (total_bytes_read != size) {
+        fprintf(stderr, "Error reading file\n");
+        exit(EXIT_FAILURE);
+    } else if (total_bytes_sent != size) {
+        fprintf(stderr, "Error sending file\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 
@@ -391,15 +396,15 @@ int main(int argc, char *argv[]) {
 
 
     memset(&hints, 0, sizeof(hints)); // make sure struct is empty
-    hints.ai_family = AF_INET;        // use IPv4 address
+    hints.ai_family   = AF_INET;        // use IPv4 address
     hints.ai_socktype = SOCK_STREAM;  // TCP stream sockets
-    hints.ai_flags = AI_PASSIVE;      // fill in my IP for me
+    hints.ai_flags    = AI_PASSIVE;      // fill in my IP for me
 
 
     // Initialise structs with server information
     int status;
     if ((status = getaddrinfo(NULL, port_num, &hints, &res)) != 0) {
-        perror("Error getting address info");
+        perror("Error getting address information");
         fprintf(stderr, "%s\n", gai_strerror(status));
         exit(EXIT_FAILURE);
     }
@@ -433,14 +438,15 @@ int main(int argc, char *argv[]) {
         break;
     }
 
-    // Free the linked list of results for IP addresses of host.
-    freeaddrinfo(res);
-
     // Sanity check to see if we've successfully bound a socket.
     if (p == NULL) {
         fprintf(stderr, "Server failed to bind a socket\n");
         exit(EXIT_FAILURE);
     }
+
+
+    // Free the linked list of results for IP addresses of host.
+    freeaddrinfo(res);
 
 
     // DEBUGGING
@@ -495,7 +501,6 @@ int main(int argc, char *argv[]) {
         pthread_t client_handler;
         pthread_attr_t attr;
         pthread_attr_init(&attr);
-
         pthread_create(&client_handler, &attr, handle_http_request, info);
         //pthread_join(client_handler, NULL);
         
