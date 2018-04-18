@@ -1,8 +1,8 @@
 #include <sys/types.h>
-#include <sys/fcntl.h>
+#include <sys/fcntl.h>    // need for open O_ constants
 #include <sys/socket.h>   // needed for socket function
 #include <netinet/in.h>   // needed for internet address i.e. sockaddr_in and in_addr
-#include <netdb.h>
+#include <netdb.h>        // needed for setting up server i.e. AI_PASSIVE and shit
 
 #include <assert.h>
 #include <string.h>
@@ -18,23 +18,23 @@
 #define BACKLOG 10     // total pending connections queue will hold
 
 
-struct request_info {
-    int newfd;
-    char *path_to_web_root;
-};
-
 
 // Function prototypes
 char *get_content_type(char *filename);
 void usage(char *prog_name);
 char *get_request_line(FILE *fdstream);
 char *get_filename(char *request_line);
-char *get_path_to_file(char *path_to_web_root, char *filename);
+char *get_path_to_file(char *filename);
 char *get_content_type(char *filename);
 void *handle_http_request(void *arg);
 void send_response_body(int newfd, int fd);
 void send_response_head(int newfd, char *status_line, char *content_type);
 char *make_content_type_header(char *content_type);
+
+
+
+// Global variable, to be shared by all threads
+char *path_to_web_root = NULL;
 
 
 
@@ -103,7 +103,7 @@ char *get_filename(char *request_line) {
 // Gets the path to the file requested. Can either be an absolute
 // path or relative path, depending on the web root specified in
 // command line.
-char *get_path_to_file(char *path_to_web_root, char *filename) {
+char *get_path_to_file(char *filename) {
 
     // Calculate total length of path to the requested file
     size_t path_len = strlen(path_to_web_root) + strlen(filename) + 1;
@@ -159,10 +159,7 @@ char *get_content_type(char *filename) {
  */
 void *handle_http_request(void *arg) {
 
-    struct request_info *info = (struct request_info*) arg;
-
-    int newfd = info->newfd;
-    char *path_to_web_root = info->path_to_web_root;
+    int newfd = *((int*)arg);
 
     // Open the stream associated with the connection file descriptor
     FILE *fdstream = fdopen(newfd, "r");
@@ -171,7 +168,7 @@ void *handle_http_request(void *arg) {
     char *request_line = get_request_line(fdstream);
     char *filename     = get_filename(request_line);
     char *content_type = get_content_type(filename);
-    char *path_to_file = get_path_to_file(path_to_web_root, filename);
+    char *path_to_file = get_path_to_file(filename);
 
 
     // Send the appropriate HTTP response status line and headers,
@@ -210,13 +207,11 @@ void *handle_http_request(void *arg) {
     // file descriptor describing the connection.
     fclose(fdstream);
 
-    // Free the input struct
-    free(info);
-
     // Close the connection to the client
     close(newfd);
 
-    return NULL;
+    // Terminate this thread
+    pthread_exit(NULL);
 }
 
 
@@ -240,7 +235,7 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
     }
 
     // Initialise memory so we can write over it safely
-    memset(response_head, '\0', size+1);
+    response_head[0] = '\0';
 
 
     // Construct the HTTP response message status, header, and empty lines
@@ -275,7 +270,8 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
  * of the file to the client.
  */
 void send_response_body(int newfd, int fd) {
-    // Empty message body (Error 404)
+    // Don't send anything if file does not exist,
+    // empty message body.
     if (fd < 0) {
         return;
     }
@@ -293,15 +289,16 @@ void send_response_body(int newfd, int fd) {
     // The total bytes read from the file, used as 
     // an offset if file is not read in one go.
     ssize_t total_bytes_read = 0;
-
     ssize_t total_bytes_sent = 0;
-    ssize_t bytes_sent;
 
-    // Read the contents of the file.
+    ssize_t bytes_sent;
     ssize_t bytes_read;
+
+    // Read contents of the file, and send as we go.
     while ((bytes_read = read(fd, buffer, BUFFER_SIZE)) > 0) {
-        // Increase total
+
         total_bytes_read += bytes_read;
+
         // Send the contents to client
         if ((bytes_sent = send(newfd, buffer, bytes_read, 0)) < 0) {
             perror("Error sending buffer contents");
@@ -344,7 +341,8 @@ char *make_content_type_header(char *content_type) {
         perror("Error allocating memory for content type header");
         exit(EXIT_FAILURE);
     }
-    memset(content_type_header, '\0', content_type_header_size+1);
+    content_type_header[0] = '\0';
+
 
     // Construct the header
     strcat(content_type_header, "Content-Type: ");
@@ -366,14 +364,14 @@ int main(int argc, char *argv[]) {
 
     // Get the port number and path to web root.
     char *port_num = argv[1];
-    char *path_to_web_root = argv[2];
+    path_to_web_root = argv[2];
 
 
     int sockfd, newfd;
     struct addrinfo hints, *res;      // point to results
 
 
-    memset(&hints, 0, sizeof(hints)); // make sure struct is empty
+    memset(&hints, '\0', sizeof(hints)); // make sure struct is empty
     hints.ai_family   = AF_INET;        // use IPv4 address
     hints.ai_socktype = SOCK_STREAM;  // TCP stream sockets
     hints.ai_flags    = AI_PASSIVE;      // fill in my IP for me
@@ -467,19 +465,8 @@ int main(int argc, char *argv[]) {
         printf("Successfully accepted a client connection request\n");
 
 
-        // Initialise struct as argument to thread function
-        struct request_info *info = malloc(sizeof(struct request_info));
-        if (info == NULL) {
-            fprintf(stderr, "Failed to allocate memory for request info\n");
-            exit(EXIT_FAILURE);
-        }
-        *info = (struct request_info) {newfd, path_to_web_root};
-
-
         pthread_t client_handler;
-        pthread_attr_t attr;
-        pthread_attr_init(&attr);
-        pthread_create(&client_handler, &attr, handle_http_request, info);
+        pthread_create(&client_handler, NULL, handle_http_request, &newfd);
 
         // UNCOMMENT THIS SHIT FOR ONLY ONE REQUEST
         //pthread_join(client_handler, NULL);
