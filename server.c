@@ -441,8 +441,6 @@ int main(int argc, char *argv[]) {
 
     printf("Successfully listened on socket\n");
 
-    struct sockaddr_storage client;
-    socklen_t client_len = sizeof(client);
 
 
     // Socket is now set up and bound. Wait for connection and process it.
@@ -454,7 +452,7 @@ int main(int argc, char *argv[]) {
     for (;;) {
 
         // Block until a connection request arrives
-        newfd = accept(sockfd, (struct sockaddr*)&client, &client_len);
+        newfd = accept(sockfd, (struct sockaddr*)NULL, NULL);
 
         // Check if connection was successfull
         if (newfd < 0) {
