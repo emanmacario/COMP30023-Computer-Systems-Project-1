@@ -33,9 +33,8 @@ char *get_path_to_file(char *path_to_web_root, char *filename);
 char *get_content_type(char *filename);
 void *handle_http_request(void *arg);
 void send_response_body(int newfd, int fd);
-char *make_http_response(char *status_line, char *content_type);
+void send_response_head(int newfd, char *status_line, char *content_type);
 char *make_content_type_header(char *content_type);
-void send_http_response(int newfd, void *http_response, size_t size);
 
 
 
@@ -135,7 +134,7 @@ char *get_content_type(char *filename) {
     // The max length content type i.e. application/javascript
     const size_t max_content_type_len = 22;
 
-    char *content_type = malloc(sizeof(char)*(max_content_type_len+1));
+    char *content_type = malloc(sizeof(char)*(max_content_type_len+1)); // +1 for nullbyte
     if (content_type == NULL) {
         perror("Failed to allocate memory to content type");
         exit(EXIT_FAILURE);
@@ -175,32 +174,29 @@ void *handle_http_request(void *arg) {
     char *path_to_file = get_path_to_file(path_to_web_root, filename);
 
 
-    // Construct the appropriate HTTP response, depending 
-    // on whether the requested file exists or not.
-    char *http_response;
-
+    // Send the appropriate HTTP response status line and headers,
+    // based on whether the file exists on the server or not.
     int fd;
     if ((fd = open(path_to_file, O_RDONLY)) == -1) {
 
         printf("Unable to open file at %s\n", path_to_file);
 
         // File does not exist on server
-        http_response = 
-            make_http_response("HTTP/1.0 404 NOT FOUND\n", content_type);
+        send_response_head(newfd, "HTTP/1.0 404 NOT FOUND\n", content_type);
+
     } else {
 
         printf("Successfully opened file %s\n", path_to_file);
 
         // File exists on server
-        http_response = 
-            make_http_response("HTTP/1.0 200 OK\n", content_type);
+        send_response_head(newfd, "HTTP/1.0 200 OK\n", content_type);
     }
 
-
-    
-    // Actually send the HTTP response to the client
-    send_http_response(newfd, http_response, 0);
+    // Then send the appropriate HTTP response body, which
+    // is either empty if the file does not exist on the server,
+    // or the file contents if it does.
     send_response_body(newfd, fd);
+
 
     printf("\nSuccesfully sent requested file\n");
 
@@ -209,7 +205,6 @@ void *handle_http_request(void *arg) {
     free(filename);
     free(content_type);
     free(path_to_file);
-    free(http_response);
 
     // Close the file stream associated with the
     // file descriptor describing the connection.
@@ -223,6 +218,55 @@ void *handle_http_request(void *arg) {
 
     return NULL;
 }
+
+
+/**
+ * Constructs the status line and headers to be sent in the HTTP
+ * response, and then actually sends them to the client.
+ */
+void send_response_head(int newfd, char *status_line, char *content_type) {    
+
+    // First construct the 'Content-Type' header, using the given content type
+    char *content_type_header = make_content_type_header(content_type);
+
+    // Calculate the size of the response head, + 1 for newline.
+    size_t size = strlen(status_line) + strlen(content_type_header) + 1;
+
+    // Allocate memory for response, +1 for nullbyte
+    char *response_head = malloc(sizeof(char)*(size+1));
+    if (response_head == NULL) {
+        perror("Error allocating memory to HTTP response");
+        exit(EXIT_FAILURE);
+    }
+
+    // Initialise memory so we can write over it safely
+    memset(response_head, '\0', size+1);
+
+
+    // Construct the HTTP response message status, header, and empty lines
+    strcat(response_head, status_line);
+    strcat(response_head, content_type_header);
+    strcat(response_head, "\n");
+    
+
+    // Now send the actual HTTP response status line and headers
+    ssize_t total_bytes_sent = 0, bytes_sent;
+    while ((bytes_sent = send(newfd, response_head+total_bytes_sent, 
+                              size-total_bytes_sent, 0)) > 0) {
+        total_bytes_sent += bytes_sent;
+    }
+
+    // Check to see if we've successfully sent the response head
+    if (total_bytes_sent != size) {
+        fprintf(stderr, "Error sending response head\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Free the memory allocated to content type header and response head
+    free(content_type_header);
+    free(response_head);
+}
+
 
 
 /**
@@ -263,7 +307,7 @@ void send_response_body(int newfd, int fd) {
             perror("Error sending buffer contents");
             exit(EXIT_FAILURE);
         }
-        printf("%s", buffer);
+        //printf("%s", buffer);
         total_bytes_sent += bytes_sent;
     }
 
@@ -280,41 +324,6 @@ void send_response_body(int newfd, int fd) {
     }
 }
 
-
-/**
- * Constructs the status line and headers to be sent in the HTTP response.
- * Appends the
- */
-char *make_http_response(char *status_line, char *content_type) {
-
-    size_t response_size;
-    char *http_response;
-
-    // First construct the 'Content-Type' header
-    char *content_type_header = make_content_type_header(content_type);
-
-    // Calculate the size of the http response, + 1 for newline.
-    response_size = strlen(status_line) + strlen(content_type_header) + 1;
-
-    // Allocate memory for response
-    http_response = malloc(sizeof(char)*(response_size + 1));
-    if (http_response == NULL) {
-        perror("Error allocating memory to HTTP response");
-        exit(EXIT_FAILURE);
-    }
-
-    // Initialise memory so we can write over it safely
-    memset(http_response, '\0', response_size+1);
-
-    // Construct the HTTP response message status, header, and empty lines
-    strcat(http_response, status_line);
-    strcat(http_response, content_type_header);
-    strcat(http_response, "\n");
-    
-    // Free the memory allocated to content type header
-    free(content_type_header);
-    return http_response;
-}
 
 
 char *make_content_type_header(char *content_type) {
@@ -343,37 +352,6 @@ char *make_content_type_header(char *content_type) {
     strcat(content_type_header, "\n");
 
     return content_type_header;
-}
-
-
-/**
- * Takes as input a file descriptor describing a client connection,
- * and sends the HTTP response message for that client through the
- * associated TCP socket connecting the client and the server.
- */
-void send_http_response(int newfd, void *response, size_t size) {
-
-    // Empty response body.
-    if (response == NULL) {
-        return;
-    }
-
-    // Two types of responses, one for binary streams
-    if (size == 0) {
-        response = (char *)response;
-        size = strlen(response);
-    } else {
-        response = (unsigned char*) response;
-    }
-    
-
-    ssize_t bytes_sent = 0;
-    bytes_sent = send(newfd, response, size, 0);
-
-    if (bytes_sent < 0 || bytes_sent < size) {
-        perror("Error sending HTTP response");
-        exit(EXIT_FAILURE);
-    }
 }
 
 
@@ -502,7 +480,10 @@ int main(int argc, char *argv[]) {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_create(&client_handler, &attr, handle_http_request, info);
+
+        // UNCOMMENT THIS SHIT FOR ONLY ONE REQUEST
         //pthread_join(client_handler, NULL);
+        //break;
         
     }
 
