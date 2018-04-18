@@ -63,6 +63,7 @@ char *get_request_line(FILE *fdstream) {
 
     // Read the request line
     if ((read = getline(&request_line, &len, fdstream)) == -1) {
+        printf("Request line: %s\n", request_line);
         perror("Error reading HTTP request");
         exit(EXIT_FAILURE);
     }
@@ -92,8 +93,8 @@ char *get_filename(char *request_line) {
         exit(EXIT_FAILURE);
     }
 
-    // If requested file is "/", set filename to "index.html"
-    if (strcmp(filename, "/") == 0) {
+    // If requested file contains "/" on RHS, set filename to "index.html"
+    if (strcmp(filename+strlen(filename)-1, "/") == 0) {
         strcat(filename, "index.html");
     }
 
@@ -212,6 +213,8 @@ void *handle_http_request(void *arg) {
     // Actually send the HTTP response to the client
     send_http_response(newfd, http_response, 0);
     send_http_response(newfd, body, get_filesize(fd));
+
+    printf("\nSuccesfully sent requested file\n");
 
     // Free all allocated memory for this response
     free(request_line);
@@ -496,8 +499,6 @@ int main(int argc, char *argv[]) {
         pthread_create(&client_handler, &attr, handle_http_request, info);
         //pthread_join(client_handler, NULL);
         
-        
-        printf("\nSuccesfully sent requested file\n");
     }
 
     
