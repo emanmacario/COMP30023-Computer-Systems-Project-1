@@ -31,6 +31,10 @@
 // The content type header prefix
 #define CONTENT_TYPE_HEADER "Content-Type: "
 
+// The HTTP response status lines
+#define STATUS_LINE_404 "HTTP/1.0 404 NOT FOUND\n"
+#define STATUS_LINE_200 "HTTP/1.0 200 OK\n"
+
 
 /* * * * * * * * * * *
  * GLOBAL VARIABLES  *

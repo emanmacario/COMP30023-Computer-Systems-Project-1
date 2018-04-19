@@ -390,10 +390,10 @@ void *handle_http_request(void *arg) {
     int fd;
     if ((fd = open(path_to_file, O_RDONLY)) == -1) {
         // File does not exist on server.
-        send_response_head(newfd, "HTTP/1.0 404 NOT FOUND\n", content_type);
+        send_response_head(newfd, STATUS_LINE_404, content_type);
     } else {
         // File exists on server.
-        send_response_head(newfd, "HTTP/1.0 200 OK\n", content_type);
+        send_response_head(newfd, STATUS_LINE_200, content_type);
     }
 
     // Then send the appropriate HTTP response body, which
