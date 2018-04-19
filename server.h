@@ -79,7 +79,7 @@ char *get_content_type_header(char *content_type);
 // Sends a message through the TCP connection socket associated
 // with a particular client connection. Ensures that the message 
 // is sent fully. Returns the total number of bytes sent.
-ssize_t send_message(int newfd, char *message, ssize_t size);
+ssize_t send_message(int newfd, void *message, ssize_t size, int binary);
 
 // Constructs and sends the HTTP 'response head', which includes
 // the status line and headers to be sent in the HTTP response,

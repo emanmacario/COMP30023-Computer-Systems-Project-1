@@ -225,7 +225,15 @@ char *get_content_type_header(char *content_type) {
  * is sent fully, since the kernel may not send all the data in one
  * single call to send(). Returns the total number of bytes sent.
  */
-ssize_t send_message(int newfd, char *message, ssize_t size) {
+ssize_t send_message(int newfd, void *message, ssize_t size, int binary) {
+
+    // Cast the pointer appropriately, depending
+    // on whether the message data is ASCII or binary.
+    if (binary) {
+        message = (unsigned char*)message;
+    } else {
+        message = (char*)message;
+    }
 
     // Attempt to send full contents of the message.
     ssize_t bytes_sent, offset = 0;
@@ -299,7 +307,7 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
     strcat(response_head, "\n");
     
     // Now send the actual HTTP 'response head'.
-    ssize_t total_bytes_sent = send_message(newfd, response_head, size);
+    ssize_t total_bytes_sent = send_message(newfd, response_head, size, 0);
 
     // Check to see if we've successfully sent the response head.
     if (total_bytes_sent != size) {
@@ -338,14 +346,14 @@ void send_response_body(int newfd, int fd) {
     ssize_t bytes_sent;
 
     // The send buffer.
-    char buffer[BUFFER_SIZE];
+    unsigned char buffer[BUFFER_SIZE];
 
 
     // Read contents of the file, and send as we go.
     while ((bytes_read = read(fd, buffer, BUFFER_SIZE)) > 0) {
 
         // Attempt to send message, and get the number of bytes sent.
-        bytes_sent = send_message(newfd, buffer, bytes_read);
+        bytes_sent = send_message(newfd, buffer, bytes_read, 1);
 
         // Update the total counts.
         total_bytes_read += bytes_read;
