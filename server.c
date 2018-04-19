@@ -1,10 +1,7 @@
-//#include <sys/types.h>
 #include <sys/fcntl.h>    // need for open O_ constants
 #include <sys/socket.h>   // needed for socket function
-//#include <netinet/in.h>   // needed for internet address i.e. sockaddr_in and in_addr
 #include <netdb.h>        // needed for setting up server i.e. AI_PASSIVE and shit
 #include <assert.h>
-//#include <arpa/inet.h>  // needed for byte order functions
 #include <unistd.h>       // needed for read/close functions
 #include <string.h>
 #include <stdlib.h>
@@ -14,15 +11,79 @@
 
 
 
-int initialise_server(void);
-
-
 /** 
  * Gives the user information on how to use the program 
  * and the required input command line arguments.
  */
 void usage(char *prog_name) {
     printf("Usage: %s [port number] [path to web root]\n", prog_name);
+}
+
+
+/**
+ * Creates a new socket and binds an IP address to the socket,
+ * such that remote clients can connect to it. Returns the file
+ * descriptor associated with the socket.
+ */
+int initialise_server(char *port_num) {
+
+    int sockfd;
+    struct addrinfo hints, *res;
+
+    memset(&hints, '\0', sizeof(hints)); // Make sure struct is empty.
+    hints.ai_family   = AF_INET;         // Use IPv4 addresses.
+    hints.ai_socktype = SOCK_STREAM;     // Use TCP stream sockets.
+    hints.ai_flags    = AI_PASSIVE;      // Fill in my IP address for me.
+
+
+    // Initialise structs with local IP address information.
+    int status;
+    if ((status = getaddrinfo(NULL, port_num, &hints, &res)) != 0) {
+        perror("Error getting address information");
+        fprintf(stderr, "%s\n", gai_strerror(status));
+        exit(EXIT_FAILURE);
+    }
+
+    // Iterate through the linked list of results, and bind
+    // server to the first available socket.
+    struct addrinfo *p;
+    for (p = res; p != NULL; p = p->ai_next) {
+        // Create a socket.
+        if ((sockfd = socket(p->ai_family, p->ai_socktype, 0)) < 0) {
+            perror("Error creating socket");
+            // Just have to skip this one!
+            continue;
+        }
+
+        // Set options to allow reuse of a port if the server terminates.
+        int yes = 1;
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, 
+                               &yes, sizeof(yes)) == -1) {
+            perror("Error setting socket options");
+            exit(EXIT_FAILURE);
+        }
+
+        // Try binding address to the socket.
+        if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
+            perror("Error binding socket");
+            // Again, if it fails, simply close the socket and skip it!
+            close(sockfd);
+            continue;
+        }
+        break;
+    }
+
+    // Sanity check to see if we've successfully bound a socket.
+    if (p == NULL) {
+        fprintf(stderr, "Server failed to bind a socket\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Free the linked list of results for IP addresses 
+    // of host, since they are no longer needed.
+    freeaddrinfo(res);
+
+    return sockfd;
 }
 
 
@@ -60,7 +121,7 @@ char *get_filename(char *request_line) {
 
     // Allocate and initialise memory for filename.
     // We know that the filename will fit into the
-    // size occupied by the entire request line.
+    // space occupied by the entire request line.
     char *filename = malloc(sizeof(char)*strlen(request_line));
     if (filename == NULL) {
         perror("Error allocating memory for filename");
@@ -68,7 +129,7 @@ char *get_filename(char *request_line) {
     }
     memset(filename, '\0', strlen(request_line));
 
-    // Get the filename from the request line
+    // Get the filename from the request line.
     if (sscanf(request_line, "GET %s HTTP/1.0\n", filename) != 1) {
         fprintf(stderr, "Failed to scan request line for filename\n");
         exit(EXIT_FAILURE);
@@ -95,7 +156,7 @@ char *get_content_type(char *filename) {
     const size_t max_content_type_len = 22;
 
     // Allocate and initialise memory for the content type.
-    char *content_type = malloc(sizeof(char)*(max_content_type_len+1)); // +1 for nullbyte
+    char *content_type = malloc(sizeof(char)*(max_content_type_len+1));
     if (content_type == NULL) {
         perror("Failed to allocate memory to content type");
         exit(EXIT_FAILURE);
@@ -121,17 +182,17 @@ char *get_content_type(char *filename) {
  * Given a content type,
  */
 char *make_content_type_header(char *content_type) {
-    // Sanity checking
+    // Sanity checking.
     assert(content_type);
 
-    // The base size of the 'Content-Type' header,
-    // including two newline and one whitespace characters
+    // The base size of the 'Content-Type' header, including 
+    // two newline and one whitespace characters.
     const size_t base_size = 15;
 
-    // Calculate size of content type header (without nullbyte)
+    // Calculate size of content type header.
     size_t content_type_header_size = base_size + strlen(content_type);
 
-    // Allocate and initialise memory for content type header
+    // Allocate and initialise memory for content type header.
     char *content_type_header;
     content_type_header = malloc(sizeof(char)*(content_type_header_size+1));
     if (content_type_header == NULL) {
@@ -140,7 +201,7 @@ char *make_content_type_header(char *content_type) {
     }
     content_type_header[0] = '\0';
 
-    // Construct the header
+    // Construct the header.
     strcat(content_type_header, "Content-Type: ");
     strcat(content_type_header, content_type);
     strcat(content_type_header, "\n");
@@ -150,8 +211,10 @@ char *make_content_type_header(char *content_type) {
 
 
 /**
- * Sends a message properly through the TCP connection socket.
- * Returns the total number of bytes sent.
+ * Sends a message through the TCP connection socket associated
+ * with a particular client. Ensures that the message is sent
+ * fully, since the kernel may not send all the data in one
+ * single call to send(). Returns the total number of bytes sent.
  */
 ssize_t send_message(int newfd, char *message, ssize_t size) {
 
@@ -181,17 +244,18 @@ ssize_t send_message(int newfd, char *message, ssize_t size) {
  */
 char *get_path_to_file(char *filename) {
 
-    // Calculate total length of path to the requested file
-    size_t path_len = strlen(path_to_web_root) + strlen(filename) + 1;
+    // Calculate total length of the path to the requested file.
+    size_t path_size = strlen(path_to_web_root) + strlen(filename);
 
-    // Allocate space for the path name
+    // Allocate and initialise memory for the path name.
     char *path;
-    if ((path = malloc(sizeof(char)*path_len)) == NULL) {
+    if ((path = malloc(sizeof(char)*(path_size+1))) == NULL) {
         perror("Error allocating memory for path name");
         exit(EXIT_FAILURE);
     }
-    
-    // Create the path name from the web root and requested filename
+    memset(path, '\0', path_size+1);
+
+    // Create the path name from the web root and requested filename.
     strcpy(path, path_to_web_root);
     strcat(path, filename);
 
@@ -200,18 +264,19 @@ char *get_path_to_file(char *filename) {
 
 
 /**
- * Constructs the status line and headers to be sent in the HTTP
- * response, and then actually sends them to the client.
+ * Constructs and sends the HTTP 'response head', which includes
+ * the status line and headers to be sent in the HTTP response,
+ * to the client.
  */
 void send_response_head(int newfd, char *status_line, char *content_type) {    
 
-    // First construct the 'Content-Type' header, using the given content type
+    // First construct the 'Content-Type' header, using the given content type.
     char *content_type_header = make_content_type_header(content_type);
 
     // Calculate the size of the response head, + 1 for newline.
     size_t size = strlen(status_line) + strlen(content_type_header) + 1;
 
-    // Allocate memory for response, +1 for nullbyte
+    // Allocate memory for the response head.
     char *response_head = malloc(sizeof(char)*(size+1));
     if (response_head == NULL) {
         perror("Error allocating memory to HTTP response");
@@ -219,12 +284,12 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
     }
     response_head[0] = '\0';
 
-    // Construct the HTTP response message status, header, and empty lines
+    // Construct the HTTP response message status, header, and empty line.
     strcat(response_head, status_line);
     strcat(response_head, content_type_header);
     strcat(response_head, "\n");
     
-    // Now send the actual HTTP response status line and headers.
+    // Now send the actual HTTP 'response head'.
     ssize_t total_bytes_sent = send_message(newfd, response_head, size);
 
     // Check to see if we've successfully sent the response head.
@@ -247,7 +312,8 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
  */
 void send_response_body(int newfd, int fd) {
 
-    // Don't send anything if file does not exist.
+    // Don't send anything if file
+    // does not exist on the server.
     if (fd < 0) {
         return;
     }
@@ -282,7 +348,7 @@ void send_response_body(int newfd, int fd) {
 
     printf("Total bytes sent: %zu bytes\n", total_bytes_sent);
 
-    // Check that we have correctly sent the file.
+    // Check that we have correctly read and sent the file.
     if (total_bytes_read != size) {
         fprintf(stderr, "Error reading file\n");
         exit(EXIT_FAILURE);
@@ -301,9 +367,10 @@ void send_response_body(int newfd, int fd) {
  */
 void *handle_http_request(void *arg) {
 
+    // The socket descriptor for the client connection.
     int newfd = *((int*)arg);
 
-    // Open the stream associated with the connection file descriptor
+    // Open the stream associated with the socket descriptor.
     FILE *fdstream = fdopen(newfd, "r");
 
     // Process the request, and extract relevant information
@@ -332,8 +399,8 @@ void *handle_http_request(void *arg) {
     }
 
     // Then send the appropriate HTTP response body, which
-    // is either empty if the file does not exist on the server,
-    // or the file contents if it does.
+    // is either empty if the file does not exist on the 
+    // server, or consists of the file contents if it does.
     send_response_body(newfd, fd);
 
 
@@ -358,9 +425,11 @@ void *handle_http_request(void *arg) {
 
 
 
-
-
-/** MAIN FUNCTION **/
+/**
+ * The main program, responsible for the initialisation of
+ * the HTTP server and processing client requests through
+ * multi-threading.
+ */
 int main(int argc, char *argv[]) {
 
     // Check if command line arguments were supplied.
@@ -372,63 +441,9 @@ int main(int argc, char *argv[]) {
     // Get the port number and path to web root.
     char *port_num = argv[1];
     path_to_web_root = argv[2];
-
-    int sockfd, newfd;
-    struct addrinfo hints, *res;
-
-    memset(&hints, '\0', sizeof(hints)); // Make sure struct is empty.
-    hints.ai_family   = AF_INET;         // use IPv4 address.
-    hints.ai_socktype = SOCK_STREAM;     // TCP stream sockets.
-    hints.ai_flags    = AI_PASSIVE;      // Fill in my IP address for me.
-
-
-    // Initialise structs with server information
-    int status;
-    if ((status = getaddrinfo(NULL, port_num, &hints, &res)) != 0) {
-        perror("Error getting address information");
-        fprintf(stderr, "%s\n", gai_strerror(status));
-        exit(EXIT_FAILURE);
-    }
-
-
-    // Iterate through the linked list of results, and bind
-    // server to the first available socket.
-    struct addrinfo *p;
-    for (p = res; p != NULL; p = p->ai_next) {
-        // Create a socket
-        if ((sockfd = socket(p->ai_family, p->ai_socktype, 0)) < 0) {
-            perror("Error creating socket");
-            // Just have to skip this one!
-            continue;
-        }
-
-        // Set options to allow reuse of a port if the server terminates.
-        int yes = 1;
-        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
-            perror("Error setting socket options");
-            exit(EXIT_FAILURE);
-        }
-
-        // Try binding address to the socket.
-        if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
-            perror("Error binding socket");
-            // Again, if it fails, simply close the socket and skip it!
-            close(sockfd);
-            continue;
-        }
-        break;
-    }
-
-    // Sanity check to see if we've successfully bound a socket.
-    if (p == NULL) {
-        fprintf(stderr, "Server failed to bind a socket\n");
-        exit(EXIT_FAILURE);
-    }
-
-
-    // Free the linked list of results for IP addresses of host.
-    freeaddrinfo(res);
-
+    
+    // Initialise the server.
+    int sockfd = initialise_server(port_num);
 
     // DEBUGGING
     printf("Successfully created socket\n");
@@ -436,8 +451,9 @@ int main(int argc, char *argv[]) {
     printf("Successfully bound socket\n");
 
 
-    // Listen, which allocates space to queue incoming calls for the
-    // case that several clients try to connect at the same time. (non-blocking call)
+    // Announce willingness to accept connections. Allocate
+    // space to queue incoming client connections in the case
+    // that several clients try to connect at the same time.
     if (listen(sockfd, BACKLOG) < 0) {
         perror("Error listening on socket");
         exit(EXIT_FAILURE);
@@ -451,9 +467,13 @@ int main(int argc, char *argv[]) {
     // Main loop of server.
     while (1) {
 
-        // Passively establish an incoming connection.
+        int newfd;
+
+        // Passively establish an incoming connection. Get
+        // the socket descriptor associated with the connection.
         if ((newfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
             perror("Error on accept");
+            // If connection fails, just continue.
             continue;
         }
 
