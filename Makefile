@@ -1,5 +1,5 @@
-# Makefile for COMP30023 Computer Systems Project 1
-# By Emmanuel Macario <macarioe@student.unimelb.edu.au>
+# Makefile for COMP30023 Computer Systems - Assignment 1
+# Made by Emmanuel Macario <macarioe@student.unimelb.edu.au>
 
 CC     = gcc
 CFLAGS = -Wall -pthread -g

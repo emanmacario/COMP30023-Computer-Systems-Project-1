@@ -1,14 +1,23 @@
-#include <sys/fcntl.h>    // need for open O_ constants
-#include <sys/socket.h>   // needed for socket function
-#include <netdb.h>        // needed for setting up server i.e. AI_PASSIVE and shit
+/**
+ * COMP30023 Computer Systems - Semester 1, 2018
+ * Assignment 1 - HTTP Server
+ *
+ * Author: Emmanuel Macario <macarioe@student.unimelb.edu.au>
+ * Student Number: 831659
+ * Last Modified: 19/04/18
+ *
+ */
+#include <sys/fcntl.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include <assert.h>
-#include <unistd.h>       // needed for read/close functions
+#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <pthread.h>    // for POSIX threads
-#include "server.h"
+#include <pthread.h>
 
+#include "server.h"
 
 
 /** 
@@ -18,6 +27,7 @@
 void usage(char *prog_name) {
     printf("Usage: %s [port number] [path to web root]\n", prog_name);
 }
+
 
 
 /**
@@ -152,7 +162,7 @@ char *get_filename(char *request_line) {
  */
 char *get_content_type(char *filename) {
 
-    // The max length content type i.e. application/javascript
+    // The max length content type i.e. application/javascript.
     const size_t max_content_type_len = 22;
 
     // Allocate and initialise memory for the content type.
@@ -179,9 +189,10 @@ char *get_content_type(char *filename) {
 
 
 /**
- * Given a content type,
+ * Given a content type, constructs and returns the
+ * 'Content-Type' header to be sent in the HTTP response.
  */
-char *make_content_type_header(char *content_type) {
+char *get_content_type_header(char *content_type) {
     // Sanity checking.
     assert(content_type);
 
@@ -212,8 +223,8 @@ char *make_content_type_header(char *content_type) {
 
 /**
  * Sends a message through the TCP connection socket associated
- * with a particular client. Ensures that the message is sent
- * fully, since the kernel may not send all the data in one
+ * with a particular client connection. Ensures that the message 
+ * is sent fully, since the kernel may not send all the data in one
  * single call to send(). Returns the total number of bytes sent.
  */
 ssize_t send_message(int newfd, char *message, ssize_t size) {
@@ -271,7 +282,7 @@ char *get_path_to_file(char *filename) {
 void send_response_head(int newfd, char *status_line, char *content_type) {    
 
     // First construct the 'Content-Type' header, using the given content type.
-    char *content_type_header = make_content_type_header(content_type);
+    char *content_type_header = get_content_type_header(content_type);
 
     // Calculate the size of the response head, + 1 for newline.
     size_t size = strlen(status_line) + strlen(content_type_header) + 1;
@@ -322,7 +333,6 @@ void send_response_body(int newfd, int fd) {
     size_t size = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
 
-    printf("Size of file: %lu bytes\n", size);
 
     // Counts used for error checking.
     ssize_t total_bytes_read = 0;
@@ -332,6 +342,7 @@ void send_response_body(int newfd, int fd) {
 
     // The send buffer.
     char buffer[BUFFER_SIZE];
+
 
     // Read contents of the file, and send as we go.
     while ((bytes_read = read(fd, buffer, BUFFER_SIZE)) > 0) {
@@ -345,8 +356,6 @@ void send_response_body(int newfd, int fd) {
         
     }
 
-
-    printf("Total bytes sent: %zu bytes\n", total_bytes_sent);
 
     // Check that we have correctly read and sent the file.
     if (total_bytes_read != size) {
@@ -384,17 +393,10 @@ void *handle_http_request(void *arg) {
     // based on whether the file exists on the server or not.
     int fd;
     if ((fd = open(path_to_file, O_RDONLY)) == -1) {
-
-        printf("Unable to open file at %s\n", path_to_file);
-
-        // File does not exist on server
+        // File does not exist on server.
         send_response_head(newfd, "HTTP/1.0 404 NOT FOUND\n", content_type);
-
     } else {
-
-        printf("Successfully opened file %s\n", path_to_file);
-
-        // File exists on server
+        // File exists on server.
         send_response_head(newfd, "HTTP/1.0 200 OK\n", content_type);
     }
 
@@ -403,10 +405,7 @@ void *handle_http_request(void *arg) {
     // server, or consists of the file contents if it does.
     send_response_body(newfd, fd);
 
-
-    printf("\nSuccesfully sent requested file\n");
-
-    // Free all allocated memory for this response
+    // Free all allocated memory for this response.
     free(request_line);
     free(filename);
     free(content_type);
@@ -416,10 +415,10 @@ void *handle_http_request(void *arg) {
     // file descriptor describing the connection.
     fclose(fdstream);
 
-    // Close the connection to the client
+    // Close the connection to the client.
     close(newfd);
 
-    // Terminate this thread
+    // Terminate this thread.
     pthread_exit(NULL);
 }
 
@@ -428,7 +427,11 @@ void *handle_http_request(void *arg) {
 /**
  * The main program, responsible for the initialisation of
  * the HTTP server and processing client requests through
- * multi-threading.
+ * multi-threading i.e. creating a new worker thread for
+ * every new request. Note that this method of multi-threading
+ * has been chosen instead of creating a thread pool, since
+ * this server will only handle a very small number of concurrent
+ * requests.
  */
 int main(int argc, char *argv[]) {
 
@@ -442,42 +445,31 @@ int main(int argc, char *argv[]) {
     char *port_num = argv[1];
     path_to_web_root = argv[2];
     
+
     // Initialise the server.
     int sockfd = initialise_server(port_num);
-
-    // DEBUGGING
-    printf("Successfully created socket\n");
-    printf("Successfully set socket options\n");
-    printf("Successfully bound socket\n");
 
 
     // Announce willingness to accept connections. Allocate
     // space to queue incoming client connections in the case
     // that several clients try to connect at the same time.
     if (listen(sockfd, BACKLOG) < 0) {
-        perror("Error listening on socket");
+        perror("Error listening to socket");
         exit(EXIT_FAILURE);
     }
-
-
-    printf("Successfully listened on socket\n");
-
 
 
     // Main loop of server.
     while (1) {
 
-        int newfd;
-
         // Passively establish an incoming connection. Get
         // the socket descriptor associated with the connection.
+        int newfd;
         if ((newfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
             perror("Error on accept");
             // If connection fails, just continue.
             continue;
         }
-
-        printf("Successfully accepted a client connection request\n");
 
         // Spawn a new worker thread to handle the request.
         pthread_t client_handler;
