@@ -1,3 +1,12 @@
+/**
+ * COMP30023 Computer Systems - Semester 1, 2018
+ * Assignment 1 - HTTP Server
+ *
+ * Author: Emmanuel Macario <macarioe@student.unimelb.edu.au>
+ * Student Number: 831659
+ * Last Modified: 19/04/18
+ *
+ */
 #ifndef SERVER_H
 #define SERVER_H
 
