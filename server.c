@@ -172,14 +172,14 @@ char *get_content_type(char *filename) {
     memset(content_type, '\0', max_content_type_len+1);
 
     // Get the content type associated with the file extension.
-    if (strstr(filename, ".html") != NULL) {
-        strcpy(content_type, "text/html");
-    } else if (strstr(filename, ".jpg") != NULL) {
-        strcpy(content_type, "image/jpeg");
-    } else if (strstr(filename, ".css") != NULL) {
-        strcpy(content_type, "text/css");
-    } else if (strstr(filename, ".js") != NULL) {
-        strcpy(content_type, "application/javascript");
+    if (strstr(filename, EXTENSION_HTML) != NULL) {
+        strcpy(content_type, MIME_HTML);
+    } else if (strstr(filename, EXTENSION_JPEG) != NULL) {
+        strcpy(content_type, MIME_JPEG);
+    } else if (strstr(filename, EXTENSION_CSS) != NULL) {
+        strcpy(content_type, MIME_CSS);
+    } else if (strstr(filename, EXTENSION_JS) != NULL) {
+        strcpy(content_type, MIME_JS);
     }
 
     return content_type;
@@ -211,7 +211,7 @@ char *get_content_type_header(char *content_type) {
     content_type_header[0] = '\0';
 
     // Construct the header.
-    strcat(content_type_header, "Content-Type: ");
+    strcat(content_type_header, CONTENT_TYPE_HEADER);
     strcat(content_type_header, content_type);
     strcat(content_type_header, "\n");
 

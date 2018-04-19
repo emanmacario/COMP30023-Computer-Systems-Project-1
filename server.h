@@ -7,6 +7,21 @@
 #define BUFFER_SIZE 8192  // Buffer size
 #define BACKLOG 10        // Total pending connections queue will hold
 
+// The four different MIME types supported
+#define MIME_HTML "text/html"
+#define MIME_JPEG "image/jpeg"
+#define MIME_CSS  "text/css"
+#define MIME_JS   "application/javascript"
+
+// The file extensions supported
+#define EXTENSION_HTML ".html"
+#define EXTENSION_JPEG ".jpg"
+#define EXTENSION_CSS  ".css"
+#define EXTENSION_JS   ".js"
+
+// The content type header prefix
+#define CONTENT_TYPE_HEADER "Content-Type: "
+
 
 /* * * * * * * * * * *
  * GLOBAL VARIABLES  *
