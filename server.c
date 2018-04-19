@@ -13,9 +13,6 @@
 #include "server.h"
 
 
-ssize_t send_message(int newfd, char *message, ssize_t size);
-
-
 
 /** 
  * Gives the user information on how to use the program 
@@ -162,8 +159,8 @@ ssize_t send_message(int newfd, char *message, ssize_t size) {
     }
 
     // Check that we have sent everything.
-    if (size != offset) {
-        perror("Failed to send message\n");
+    if (size != offset || bytes_sent < 0) {
+        perror("Failed to send message");
         exit(EXIT_FAILURE);
     }
 
@@ -219,27 +216,21 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
     }
     response_head[0] = '\0';
 
-
     // Construct the HTTP response message status, header, and empty lines
     strcat(response_head, status_line);
     strcat(response_head, content_type_header);
     strcat(response_head, "\n");
     
+    // Now send the actual HTTP response status line and headers.
+    ssize_t total_bytes_sent = send_message(newfd, response_head, size);
 
-    // Now send the actual HTTP response status line and headers
-    ssize_t bytes_sent, total_bytes_sent = 0;
-    while ((bytes_sent = send(newfd, response_head+total_bytes_sent, 
-                              size-total_bytes_sent, 0)) > 0) {
-        total_bytes_sent += bytes_sent;
-    }
-
-    // Check to see if we've successfully sent the response head
+    // Check to see if we've successfully sent the response head.
     if (total_bytes_sent != size) {
         fprintf(stderr, "Error sending response head\n");
         exit(EXIT_FAILURE);
     }
 
-    // Free the memory allocated to content type header and response head
+    // Free the memory allocated to content type header and response head.
     free(content_type_header);
     free(response_head);
 }
@@ -262,46 +253,26 @@ void send_response_body(int newfd, int fd) {
     size_t size = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
 
-
     printf("Size of file: %lu bytes\n", size);
 
-
-    char buffer[BUFFER_SIZE];
-
-    // The total bytes read from the file, used as 
-    // an offset if file is not read in one go.
+    // Counts used for error checking.
     ssize_t total_bytes_read = 0;
     ssize_t total_bytes_sent = 0;
-
-    ssize_t bytes_sent;
     ssize_t bytes_read;
+    ssize_t bytes_sent;
+
+    // The send buffer.
+    char buffer[BUFFER_SIZE];
 
     // Read contents of the file, and send as we go.
     while ((bytes_read = read(fd, buffer, BUFFER_SIZE)) > 0) {
 
+        // Attempt to send message, and get the number of bytes sent.
+        bytes_sent = send_message(newfd, buffer, bytes_read);
+
+        // Update the total counts.
+        total_bytes_sent += bytes_sent;
         total_bytes_read += bytes_read;
-
-
-
-        /*
-        // Send the contents to client
-        if ((bytes_sent = send(newfd, buffer, bytes_read, 0)) < 0) {
-            perror("Error sending buffer contents");
-            exit(EXIT_FAILURE);
-        }
-        //printf("%s", buffer);
-        */
-
-        ssize_t offset = 0;
-        while ((bytes_sent = send(newfd, buffer+offset, 
-                                  bytes_read-offset, 0)) > 0) {
-            offset += bytes_sent;
-            total_bytes_sent += bytes_sent;
-        }
-
-
-
-        //total_bytes_sent += bytes_sent;
     }
 
 
