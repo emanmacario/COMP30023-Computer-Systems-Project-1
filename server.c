@@ -13,6 +13,9 @@
 #include "server.h"
 
 
+ssize_t send_message(int newfd, char *message, ssize_t size);
+
+
 
 /** 
  * Gives the user information on how to use the program 
@@ -108,8 +111,6 @@ char *get_content_type(char *filename) {
         strcpy(content_type, "text/css");
     } else if (strstr(filename, ".js") != NULL) {
         strcpy(content_type, "application/javascript");
-    } else {
-        strcpy(content_type, "text/plain");
     }
 
     return content_type;
@@ -146,6 +147,31 @@ char *make_content_type_header(char *content_type) {
 
     return content_type_header;
 }
+
+
+/**
+ * Sends a message properly through the TCP connection socket.
+ * Returns the total number of bytes sent.
+ */
+ssize_t send_message(int newfd, char *message, ssize_t size) {
+
+    // Attempt to send full contents of the message.
+    ssize_t bytes_sent, offset = 0;
+    while ((bytes_sent = send(newfd, message+offset, size-offset, 0)) > 0) {
+        offset += bytes_sent;
+    }
+
+    // Check that we have sent everything.
+    if (size != offset) {
+        perror("Failed to send message\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // If we have reached this point, offset is
+    // the total number of bytes sent.
+    return offset;
+}
+
 
 
 /**
@@ -201,7 +227,7 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
     
 
     // Now send the actual HTTP response status line and headers
-    ssize_t total_bytes_sent = 0, bytes_sent;
+    ssize_t bytes_sent, total_bytes_sent = 0;
     while ((bytes_sent = send(newfd, response_head+total_bytes_sent, 
                               size-total_bytes_sent, 0)) > 0) {
         total_bytes_sent += bytes_sent;
@@ -240,7 +266,7 @@ void send_response_body(int newfd, int fd) {
     printf("Size of file: %lu bytes\n", size);
 
 
-    unsigned char buffer[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
 
     // The total bytes read from the file, used as 
     // an offset if file is not read in one go.
@@ -255,13 +281,27 @@ void send_response_body(int newfd, int fd) {
 
         total_bytes_read += bytes_read;
 
+
+
+        /*
         // Send the contents to client
         if ((bytes_sent = send(newfd, buffer, bytes_read, 0)) < 0) {
             perror("Error sending buffer contents");
             exit(EXIT_FAILURE);
         }
         //printf("%s", buffer);
-        total_bytes_sent += bytes_sent;
+        */
+
+        ssize_t offset = 0;
+        while ((bytes_sent = send(newfd, buffer+offset, 
+                                  bytes_read-offset, 0)) > 0) {
+            offset += bytes_sent;
+            total_bytes_sent += bytes_sent;
+        }
+
+
+
+        //total_bytes_sent += bytes_sent;
     }
 
 
