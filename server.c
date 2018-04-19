@@ -1,17 +1,20 @@
-#include <sys/types.h>
+//#include <sys/types.h>
 #include <sys/fcntl.h>    // need for open O_ constants
 #include <sys/socket.h>   // needed for socket function
-#include <netinet/in.h>   // needed for internet address i.e. sockaddr_in and in_addr
+//#include <netinet/in.h>   // needed for internet address i.e. sockaddr_in and in_addr
 #include <netdb.h>        // needed for setting up server i.e. AI_PASSIVE and shit
 #include <assert.h>
-#include <arpa/inet.h>  // needed for byte order functions
-#include <unistd.h>     // needed for read/close functions
+//#include <arpa/inet.h>  // needed for byte order functions
+#include <unistd.h>       // needed for read/close functions
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>    // for POSIX threads
 #include "server.h"
 
+
+
+int initialise_server(void);
 
 
 /** 
@@ -165,7 +168,7 @@ ssize_t send_message(int newfd, char *message, ssize_t size) {
     }
 
     // If we have reached this point, offset is
-    // the total number of bytes sent.
+    // equal to the total number of bytes sent.
     return offset;
 }
 
@@ -271,8 +274,9 @@ void send_response_body(int newfd, int fd) {
         bytes_sent = send_message(newfd, buffer, bytes_read);
 
         // Update the total counts.
-        total_bytes_sent += bytes_sent;
         total_bytes_read += bytes_read;
+        total_bytes_sent += bytes_sent;
+        
     }
 
 
@@ -370,12 +374,12 @@ int main(int argc, char *argv[]) {
     path_to_web_root = argv[2];
 
     int sockfd, newfd;
-    struct addrinfo hints, *res;      // point to results
+    struct addrinfo hints, *res;
 
-    memset(&hints, '\0', sizeof(hints)); // make sure struct is empty
-    hints.ai_family   = AF_INET;        // use IPv4 address
-    hints.ai_socktype = SOCK_STREAM;  // TCP stream sockets
-    hints.ai_flags    = AI_PASSIVE;      // fill in my IP for me
+    memset(&hints, '\0', sizeof(hints)); // Make sure struct is empty.
+    hints.ai_family   = AF_INET;         // use IPv4 address.
+    hints.ai_socktype = SOCK_STREAM;     // TCP stream sockets.
+    hints.ai_flags    = AI_PASSIVE;      // Fill in my IP address for me.
 
 
     // Initialise structs with server information
@@ -405,7 +409,7 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
 
-        // Try binding the socket
+        // Try binding address to the socket.
         if (bind(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
             perror("Error binding socket");
             // Again, if it fails, simply close the socket and skip it!
@@ -444,30 +448,23 @@ int main(int argc, char *argv[]) {
 
 
 
-    // Socket is now set up and bound. Wait for connection and process it.
-    // Use the accept function to retrieve a connect request and convert it
-    // into a connection.
+    // Main loop of server.
+    while (1) {
 
-
-    // Main loop of server
-    for (;;) {
-
-        // Block until a connection request arrives
-        newfd = accept(sockfd, (struct sockaddr*)NULL, NULL);
-
-        // Check if connection was successfull
-        if (newfd < 0) {
+        // Passively establish an incoming connection.
+        if ((newfd = accept(sockfd, (struct sockaddr*)NULL, NULL)) < 0) {
             perror("Error on accept");
             continue;
         }
 
         printf("Successfully accepted a client connection request\n");
 
+        // Spawn a new worker thread to handle the request.
         pthread_t client_handler;
         pthread_create(&client_handler, NULL, handle_http_request, &newfd);
     }
 
-    // Close the socket
+    // Close the socket.
     close(sockfd);
 
     // Done! 
