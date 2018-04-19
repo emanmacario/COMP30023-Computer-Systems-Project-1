@@ -29,7 +29,6 @@ void usage(char *prog_name) {
 }
 
 
-
 /**
  * Creates a new socket and binds an IP address to the socket,
  * such that remote clients can connect to it. Returns the file
@@ -152,7 +151,6 @@ char *get_filename(char *request_line) {
 
     return filename;
 }
-
 
 
 /**
@@ -315,7 +313,6 @@ void send_response_head(int newfd, char *status_line, char *content_type) {
 }
 
 
-
 /**
  * Takes as input the file descriptors for an open connection
  * with a client, and one for a file, and sends the contents
@@ -366,7 +363,6 @@ void send_response_body(int newfd, int fd) {
         exit(EXIT_FAILURE);
     }
 }
-
 
 
 /**
@@ -421,7 +417,6 @@ void *handle_http_request(void *arg) {
     // Terminate this thread.
     pthread_exit(NULL);
 }
-
 
 
 /**
