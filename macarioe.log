@@ -1,0 +1,57 @@
+Starting automated marking of macarioe
+Looking for project folder
+Found project directory ./comp30023-2018-project-1
+Commit Time: 2018-04-19T22:01:36+10:00, with Hash: 398e502d7b73272cb6416171e5cad52b234e3d2a
+Submission is before deadline
+
+Running make clean
+rm -f server.o server
+make clean found and run
+
+Running make
+gcc -Wall -pthread -g   -c -o server.o server.c
+gcc -Wall -pthread -g -o server server.o
+Executable created after make call
+
+Looking for executable
+Found server exe
+Starting server (7136), saving log:
+Server (7136), started with PID: 31416
+Test 1: GET HTML file in root: PASS
+Test 2: GET Non-existent HTML file in root: PASS
+Test 3: GET CSS file in root: PASS
+Test 4: GET JavaScript file in root: PASS
+Test 5: GET JPEG file in root: PASS
+Test 6: GET HTML file in directory: PASS
+Test 7: GET CSS file in directory: PASS
+Test 8: GET JavaScript file in directory: PASS
+Test 9: GET JPEG file in directory: PASS
+
+Starting Multi-Thread Tests
+Starting small file speed test at 1525255423676
+Test 13: Speed test: PASS
+Small file took 14 to download
+Requesting large file with 10 second download
+Waiting 2 seconds before starting small file check
+Starting small file check at 1525255425695
+Test 11: GET HTML file in root: PASS
+Small file check finished at 1525255425710, took 15
+Waiting for large file to finish
+Test 10: GET Large JPEG file in directory: PASS
+Large file check finished at 1525255433667, took 9976
+Small file completed at least 2 seconds before large file
+Small file completed within 10 times normal time - threading check PASS
+Server process stopped (31416)
+
+
+Start Feedback Comments
+=======================
+
+use strncpy() instead of strcpy() as it compats buffer overflow
+use strncat() instead of strcat() as it's safer
+overall, code is well documented
+
+
+
+=======================
+End Feedback Comments
